@@ -1,0 +1,32 @@
+#define AppName "Powerty"
+#define AppVersion "0.11.2"
+#define AppPublisher "Typing Translator"
+#define AppExeName "Powerty.App.exe"
+
+[Setup]
+AppId={{96C80203-6CBA-4627-B6A4-7A172772F2D7}
+AppName={#AppName}
+AppVersion={#AppVersion}
+AppPublisher={#AppPublisher}
+DefaultDirName={localappdata}\Programs\Powerty
+DefaultGroupName={#AppName}
+PrivilegesRequired=lowest
+OutputBaseFilename=Powerty-Setup
+ArchitecturesInstallIn64BitMode=x64compatible
+Compression=lzma
+SolidCompression=yes
+WizardStyle=modern
+SetupIconFile=..\src\Powerty.App\app.ico
+UninstallDisplayIcon={app}\{#AppExeName}
+
+[Tasks]
+Name: "autostart"; Description: "登录 Windows 时自动启动"; GroupDescription: "可选设置："; Flags: unchecked
+
+[Files]
+Source: "..\artifacts\publish\*"; DestDir: "{app}"; Excludes: "*.pdb"; Flags: recursesubdirs ignoreversion
+
+[Icons]
+Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
+
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Powerty"; ValueData: """{app}\{#AppExeName}"""; Tasks: autostart; Flags: uninsdeletevalue

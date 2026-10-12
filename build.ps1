@@ -1,0 +1,192 @@
+﻿param([switch]$SelfContained, [switch]$Portable, [string]$LexiconSource, [string]$EcdictSource)
+
+$ErrorActionPreference = "Stop"
+
+$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$localDotnet = Join-Path $root ".dotnet\dotnet.exe"
+$dotnet = "dotnet"
+if (Test-Path -LiteralPath $localDotnet) {
+    $dotnet = $localDotnet
+}
+$env:DOTNET_CLI_HOME = Join-Path $root ".dotnet-home"
+$env:NUGET_PACKAGES = Join-Path $root ".nuget-packages"
+$env:DOTNET_NOLOGO = "1"
+$env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = "1"
+$env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
+$publishPath = Join-Path $root "artifacts\publish"
+$installerPath = Join-Path $root "artifacts\installer"
+$testProject = Join-Path $root "tests\Powerty.Core.Tests\Powerty.Core.Tests.csproj"
+$lexiconProject = Join-Path $root "tools\Powerty.LexiconBuilder\Powerty.LexiconBuilder.csproj"
+
+if (-not $LexiconSource) {
+    $defaultLexiconSource = Join-Path (Split-Path -Parent $root) "qwerty_typing_translating\qwerty-learner-master"
+    if (Test-Path -LiteralPath $defaultLexiconSource) {
+        $LexiconSource = $defaultLexiconSource
+    }
+}
+
+if (-not $EcdictSource) {
+    $defaultEcdictSource = Join-Path (Split-Path -Parent $root) "ecdict\ecdict.csv"
+    if (Test-Path -LiteralPath $defaultEcdictSource) {
+        $EcdictSource = $defaultEcdictSource
+    }
+}
+
+$curatedPath = Join-Path $root "tools\Powerty.LexiconBuilder\curated.tsv"
+
+& $dotnet run --project $testProject --configuration Release
+if ($LASTEXITCODE -ne 0) {
+    throw "Core checks failed."
+}
+
+if ($SelfContained) {
+    & $dotnet publish (Join-Path $root "src\Powerty.App\Powerty.App.csproj") `
+        --configuration Release `
+        --runtime win-x64 `
+        --self-contained true `
+        -p:PublishSingleFile=true `
+        -p:IncludeNativeLibrariesForSelfExtract=true `
+        --output $publishPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "Self-contained publish failed. It needs the win-x64 runtime packs, which require a one-time download approval."
+    }
+}
+else {
+    & $dotnet publish (Join-Path $root "src\Powerty.App\Powerty.App.csproj") `
+        --configuration Release `
+        --output $publishPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "Application publish failed."
+    }
+}
+
+if ($LexiconSource) {
+    if (Test-Path -LiteralPath $LexiconSource) {
+        $lexiconOutput = Join-Path $publishPath "dicts\lexicon.ttlx"
+        $lexiconArguments = @("--source", $LexiconSource, "--output", $lexiconOutput)
+        if ($EcdictSource -and (Test-Path -LiteralPath $EcdictSource)) {
+            $lexiconArguments += @("--ecdict", $EcdictSource, "--ecdict-phrase-words", "6")
+            Write-Host "Merging ECDICT entries from $EcdictSource"
+        }
+
+        if (Test-Path -LiteralPath $curatedPath) {
+            $lexiconArguments += @("--curated", $curatedPath)
+        }
+
+        & $dotnet run --project $lexiconProject --configuration Release -- @lexiconArguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "Lexicon build failed."
+        }
+
+        $env:POWERTY_LEXICON = $lexiconOutput
+        & $dotnet run --project $testProject --configuration Release
+        $env:POWERTY_LEXICON = $null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Real lexicon verification failed."
+        }
+    }
+    else {
+        Write-Host "Lexicon source not found at $LexiconSource; the app will use built-in demo entries. Pass -LexiconSource to override."
+    }
+}
+
+if ($Portable) {
+    $portablePath = Join-Path $root "artifacts\portable"
+    if (Test-Path -LiteralPath $portablePath) {
+        Remove-Item -LiteralPath $portablePath -Recurse -Force
+    }
+
+    & $dotnet publish (Join-Path $root "src\Powerty.App\Powerty.App.csproj") `
+        --configuration Release `
+        --runtime win-x64 `
+        --self-contained true `
+        -p:PublishSingleFile=true `
+        -p:IncludeNativeLibrariesForSelfExtract=true `
+        --output $portablePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "Portable self-contained publish failed. It needs the win-x64 runtime packs (one-time download from the official NuGet feed)."
+    }
+
+    Get-ChildItem -Path $portablePath -Filter *.pdb | Remove-Item -Force
+    New-Item -ItemType File -Force -Path (Join-Path $portablePath "portable.txt") | Out-Null
+
+    $publishedLexicon = Join-Path $publishPath "dicts\lexicon.ttlx"
+    if (Test-Path -LiteralPath $publishedLexicon) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $portablePath "dicts") | Out-Null
+        Copy-Item -LiteralPath $publishedLexicon -Destination (Join-Path $portablePath "dicts\lexicon.ttlx") -Force
+    }
+    else {
+        Write-Host "No lexicon found for the portable build; the app will use built-in demo entries."
+    }
+
+    $usageText = @'
+Powerty — 绿色版（免安装）
+==================================
+
+启动方式：双击 Powerty.App.exe
+
+特点：
+1. 自包含版本：无需安装 .NET 运行时或任何依赖，整个文件夹可拷贝到任意位置（含 U 盘）使用。
+2. 便携设置：快捷键、在线补查、开机启动、浮窗外观等设置保存在本文件夹的 settings.json，不写入系统其他位置。
+
+使用方法：
+- 键入实时翻译：勾选主窗口「键入实时翻译」或按 Ctrl+Alt+Shift+T 开关。打字时自动显示当前单词/中文片段（支持变形词：running→run、studied→study 等自动还原）。离线词库约 43 万词条（合并 ECDICT 词典，含短语与常见对话用词），中文反查接近全覆盖。
+- 划词翻译：勾选「划词翻译」或按 Ctrl+Alt+Shift+S 开关；选中文本后按 Ctrl+Alt+Shift+D 翻译（按下后立即显示"正在读取"反馈）。
+- AI 翻译（可选）：在「AI 翻译」区域选择服务商（推荐 DeepSeek）→ 到服务商官网注册并创建 API Key → 将 Key 粘贴到"API Key"框 → 点「测试连接」确认成功。启用后，本地词库未收录的单词、短语与划词句子会优先由 AI 翻译（流式逐字显示，结果自动缓存）。
+- 弹窗自动关闭规则：自动查询的弹窗在你点击任意处（取消划词）时自动关闭；快捷键弹窗可选"松开按键后自动关闭"（至少显示 1.5 秒便于阅读）或"保持显示、手动关闭"，在设置中自由切换。
+- 快捷键默认使用三修饰键偏门组合，避免与其他软件冲突；三个键均可在主窗口修改。
+- 关闭主窗口后程序驻留系统托盘（快捷键继续有效）；双击托盘图标重新打开，右键托盘菜单可开关模块或退出。
+- 兼容模式（使用微信/QQ 打字查词必须开启）：这些应用无法被直接读取，需改用临时键入缓冲（仅内存，切换焦点/回车/点击即清空）。
+- 浮窗交互：仅显示词性、音标与释义；多条结果时第一条完整显示，其余以横向词条折叠，点击即可展开；可按住顶部拖动位置、拖右下角调节大小、鼠标滚轮滚动；字体、字号与不透明度在主窗口「浮窗外观」调整（含实时预览框）。
+- 诊断日志（默认开启，仅记录事件元数据：应用名/成功失败/错误，不含任何文本内容）：出现问题时可在「%LOCALAPPDATA%\Powerty\diagnostics.log」中查看。
+- 程序只允许运行一个实例；重复启动会提示到系统托盘查找图标。
+- 主界面参考 VS Code 深色风格。
+
+注意事项：
+- 首次运行若出现「Windows 已保护你的电脑」（未签名），点击「更多信息」→「仍要运行」。
+- 密码输入框等无法安全读取的区域会自动跳过；程序不保存键入内容。
+- 「登录 Windows 时自动启动」会写入当前用户注册表（仅在你勾选时）；若移动了本文件夹，请在设置中重新勾选以修复路径。
+- 兼容模式在中文输入法组合状态下无法工作（拼音字母会被缓冲）；在微信中查中文词建议使用划词查询。
+- 若快捷键被其他软件占用，启动时会弹托盘通知提示，换一个组合即可。
+
+卸载：直接删除本文件夹即可（若勾选过开机启动，请先在设置中取消勾选）。
+'@
+    Set-Content -LiteralPath (Join-Path $portablePath "使用说明.txt") -Value $usageText -Encoding UTF8
+
+    $zipPath = Join-Path $root "artifacts\Powerty-Green-x64.zip"
+    if (Test-Path -LiteralPath $zipPath) {
+        Remove-Item -LiteralPath $zipPath -Force
+    }
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::CreateFromDirectory(
+        $portablePath,
+        $zipPath,
+        [System.IO.Compression.CompressionLevel]::Optimal,
+        $false)
+    Write-Host "Portable folder: $portablePath"
+    Write-Host "Portable zip:    $zipPath"
+}
+
+$compiler = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+$compilerPath = $null
+if ($null -ne $compiler) {
+    $compilerPath = $compiler.Source
+}
+else {
+    $localIscc = Join-Path $root "tools\InnoSetup6\ISCC.exe"
+    if (Test-Path -LiteralPath $localIscc) {
+        $compilerPath = $localIscc
+    }
+}
+
+if ($null -eq $compilerPath) {
+    Write-Host "Published app to $publishPath. Install Inno Setup 6 and run installer\Powerty.iss to create the installer."
+    exit 0
+}
+
+New-Item -ItemType Directory -Force -Path $installerPath | Out-Null
+& $compilerPath "/O$installerPath" (Join-Path $root "installer\Powerty.iss")
+if ($LASTEXITCODE -ne 0) {
+    throw "Installer compilation failed."
+}

@@ -1,0 +1,82 @@
+# Powerty
+
+Windows 桌面中英实时翻译 / 查词工具：**键入、划词、截图** 三路取词，本地词库优先，AI 辅助翻译与语境增强。C# / .NET 8 + WPF，VS Code 深色风格界面，常驻系统托盘。
+
+## 功能
+
+- **键入实时翻译**：打字停顿约 0.5 秒后自动查询，浮窗跟随输入光标；英文显示音标与分组释义，中文显示英文反查候选
+- **划词翻译**：拖选即译（自动模式），或选中文本后按快捷键查询；支持"AI 上下文增强"按语境给出情境化译文
+- **截图翻译**：框选屏幕任意区域，Windows 离线 OCR 识别后翻译；适用于图片、视频字幕等无法复制的文字
+- **三路查询链路**：本地词库（约 43 万词条，完全离线）→ AI（OpenAI 兼容接口，流式输出）→ MyMemory 在线兜底
+- **词形还原**：running→run、studies→study 等自动还原；中英混排自动判定翻译方向
+- **隐私**：只发送当前查询片段；不保存键入内容与查询历史；AI Key 仅存本机
+
+## 使用
+
+构建产物提供三种形式：
+
+| 形式 | 说明 |
+| --- | --- |
+| `Powerty-Setup.exe` | 安装包：当前用户安装，可选开机自启 |
+| `Powerty-Green-x64.zip` | 绿色版：自包含单文件，解压即用，无需安装 .NET |
+| `artifacts\publish\` | 免安装运行版：需要 .NET 8 桌面运行时 |
+
+默认快捷键（均在设置页可改）：
+
+| 功能 | 快捷键 |
+| --- | --- |
+| 键入实时翻译 开关 | `Ctrl+Alt+Shift+T` |
+| 自动划词翻译 开关 | `Ctrl+Alt+Shift+A` |
+| 快捷键划词翻译 触发 / 开关 | `Ctrl+Alt+Shift+D` / `Ctrl+Alt+Shift+S` |
+| 截图翻译 | `Ctrl+Alt+Shift+X` |
+
+设置与诊断日志位于 `%LOCALAPPDATA%\Powerty\`（绿色版为程序目录）。关闭主窗口后程序驻留托盘，右键托盘图标可退出。
+
+备注：
+- 微信 / QQ 等无法读取文本的应用，请开启「兼容模式」（缓冲最近键入字符，仅内存）
+- 密码输入框自动跳过，不查词、不联网
+- 程序只允许运行一个实例
+
+## 构建
+
+要求：Windows 10/11、.NET 8 SDK。
+
+```powershell
+.\build.ps1                  # 运行核心检查并发布到 artifacts\publish
+.\build.ps1 -SelfContained   # 自包含单文件版
+.\build.ps1 -Portable        # 绿色版文件夹 + zip
+```
+
+运行测试：
+
+```powershell
+dotnet run --project .\tests\Powerty.Core.Tests\Powerty.Core.Tests.csproj -c Release
+```
+
+生成安装包：安装 [Inno Setup 6](https://jrsoftware.org/isinfo.php) 后，`build.ps1` 会自动编译 `installer\Powerty.iss`（或手动用 ISCC 编译）。
+
+## 离线词库（可选）
+
+仓库不包含词库数据；缺失时应用使用内置演示词条。完整词库由 `build.ps1` 合并以下开源数据源生成 `dicts\lexicon.ttlx`（约 34 MB）：
+
+- [qwerty-learner](https://github.com/Kaiyiwing/qwerty-learner)（GPL-3.0）——英语词库
+- [ECDICT](https://github.com/skywind3000/ECDICT)（MIT）——词典数据
+- `tools\Powerty.LexiconBuilder\curated.tsv`——少量人工校对的高频对话词补充
+
+将数据源放到本机任意位置，通过参数指定即可：
+
+```powershell
+.\build.ps1 -LexiconSource <qwerty-learner 仓库路径> -EcdictSource <ecdict.csv 路径>
+```
+
+词库数据版权归上述开源项目所有，本项目仅作个人学习用途；如需再分发词库产物请遵守其许可要求。
+
+## 项目结构
+
+| 目录 | 内容 |
+| --- | --- |
+| `src\Powerty.App` | WPF 应用：界面、全局热键、键入 / 划词 / 截图模块 |
+| `src\Powerty.Core` | 核心库：词库查询、AI 翻译、文本解析、OCR 清理 |
+| `tests\Powerty.Core.Tests` | 核心行为检查（约 40 项） |
+| `tools\` | 词库构建器、界面预览工具 |
+| `installer\` | Inno Setup 安装脚本 |

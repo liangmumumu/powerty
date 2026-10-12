@@ -1,0 +1,23 @@
+# ---- 构建产物 ----
+bin/
+obj/
+artifacts/
+正式应用/
+tools/ui-preview/
+
+# ---- 本机 SDK / 包缓存（build.ps1 使用；换机可回退到 PATH 中的 dotnet） ----
+.dotnet/
+.dotnet-home/
+.nuget-packages/
+
+# ---- 第三方安装器工具（请自行安装 Inno Setup 6 后编译 installer\Powerty.iss） ----
+tools/InnoSetup6/
+tools/innosetup-*.exe
+
+# ---- 个人会话/交接记录（含本机路径，不入库） ----
+docs/
+
+# ---- 其他 ----
+*.user
+Thumbs.db
+desktop.ini
