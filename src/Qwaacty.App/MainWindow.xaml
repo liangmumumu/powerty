@@ -377,14 +377,14 @@
                                                Text="专业词库（电子信息）" />
                                     <TextBlock Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource VsDimTextBrush}"
                                                TextWrapping="Wrap"
-                                               Text="电子信息专业中英术语与缩略语（含中文释义、英文解释与百科链接）；开启专业模式后划词/截图优先查询，约 200KB。" />
+                                               Text="电子信息专业中英术语库（约 5,700 条）：学术性中文详解（ADI 官方术语表等来源）、缩写全称与百科链接；开启专业模式后划词/截图优先查询，下载约 1MB。" />
                                     <TextBlock x:Name="ProfessionalStatusText" Margin="0,8,0,0" FontSize="12.5"
                                                Foreground="{StaticResource VsTextBrush}" Text="状态：未下载" />
                                     <ProgressBar x:Name="ProfessionalDownloadProgress" Height="4" Margin="0,10,0,0"
                                                  Visibility="Collapsed" Foreground="{StaticResource VsAccentBrush}" />
                                     <Button x:Name="ProfessionalDownloadButton" Margin="0,12,0,0" Width="220"
                                             HorizontalAlignment="Left" Style="{StaticResource VsButton}"
-                                            Content="下载专业词库（约 200KB）" Click="DownloadEedictButton_OnClick" />
+                                            Content="下载专业词库（约 1MB）" Click="DownloadEedictButton_OnClick" />
                                 </StackPanel>
                             </Border>
                         </StackPanel>

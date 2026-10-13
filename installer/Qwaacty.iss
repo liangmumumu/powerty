@@ -1,5 +1,5 @@
 #define AppName "Qwaacty"
-#define AppVersion "0.13.0"
+#define AppVersion "0.14.0"
 #define AppPublisher "Qwaacty"
 #define AppExeName "Qwaacty.App.exe"
 

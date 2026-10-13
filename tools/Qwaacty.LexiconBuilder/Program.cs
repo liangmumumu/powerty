@@ -479,8 +479,7 @@ static int BuildEedict(string[] arguments, string output)
         }
     }
 
-    var entries = new List<(string En, string Zh, bool Abbr, string Full)>();
-    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var drafts = new Dictionary<string, EedictDraft>(StringComparer.Ordinal);
     foreach (var vocabPath in vocabPaths)
     {
         if (!File.Exists(vocabPath))
@@ -507,34 +506,63 @@ static int BuildEedict(string[] arguments, string output)
             var zh = parts[1].Trim();
             var abbr = parts[2].Trim().Equals("abbr", StringComparison.OrdinalIgnoreCase);
             var full = parts.Length > 3 ? parts[3].Trim() : string.Empty;
-            if (en.Length == 0 || zh.Length == 0 || !seen.Add(en))
+            var overrideExplain = parts.Length > 4 ? parts[4].Trim() : string.Empty;
+            if (en.Length == 0 || zh.Length == 0)
             {
                 continue;
             }
 
-            entries.Add((en, zh, abbr, full));
+            var key = NormalizeEedictKey(en);
+            if (key.Length == 0)
+            {
+                continue;
+            }
+
+            if (!drafts.TryGetValue(key, out var draft))
+            {
+                draft = new EedictDraft(en);
+                drafts[key] = draft;
+            }
+
+            draft.Merge(en, zh, abbr, full, overrideExplain.Length == 0 ? null : overrideExplain);
         }
     }
 
     var squash = new Regex(@"\s+", RegexOptions.Compiled);
-    var outputEntries = entries
+    var outputEntries = drafts.Values
         .OrderBy(entry => entry.En, StringComparer.OrdinalIgnoreCase)
         .Select(entry =>
         {
+            // Explanation priority: an explicit explanation from the source TSV (e.g. the
+            // ADI glossary text), then abbreviation formatting, then the ECDICT English
+            // definition as a last resort.
             string? explain = null;
-            if (entry.Abbr)
+            if (!string.IsNullOrEmpty(entry.Explain))
+            {
+                explain = entry.Abbr && entry.Full.Length > 0
+                    ? $"缩写：{entry.Full}；{entry.Explain}"
+                    : entry.Explain;
+            }
+            else if (entry.Abbr)
             {
                 explain = entry.Full.Length > 0 ? $"缩写：{entry.Full}；中文释义：{entry.Zh}。" : $"中文释义：{entry.Zh}。";
             }
             else if (englishDefinitions.TryGetValue(entry.En, out var definition))
             {
-                var squashed = squash.Replace(definition.Replace("\r", " ").Replace("\n", " "), " ").Trim();
+                var squashed = squash.Replace(
+                    definition.Replace("\\n", " ").Replace("\\r", " ").Replace("\r", " ").Replace("\n", " "),
+                    " ").Trim();
                 if (squashed.Length > 400)
                 {
                     squashed = squashed[..400] + "…";
                 }
 
                 explain = squashed;
+            }
+
+            if (explain is { Length: > 900 })
+            {
+                explain = explain[..900] + "…";
             }
 
             var link = "https://baike.baidu.com/item/" + Uri.EscapeDataString(entry.Abbr ? entry.En.ToUpperInvariant() : entry.En);
@@ -557,9 +585,9 @@ static int BuildEedict(string[] arguments, string output)
 
     var payload = new
     {
-        version = 1,
+        version = 2,
         generated = DateTime.UtcNow.ToString("yyyy-MM-dd"),
-        source = "安徽大学电子信息工程学院《专业英语-词汇复习-2026》(github.com/caomax361-ops/professional-english-vocab-2026) + 项目整理标准术语 + ECDICT (MIT) 释义",
+        source = "ADI 官方术语表 Glossary of EE Terms（analog.com/cn，经 github.com/WangShuXian6/blog issue #164 抓取整理）＋ Phillweston/EE_Vocabulary《电子类专业英语词汇》＋ 安徽大学《专业英语-词汇复习-2026》＋ 项目整理术语；英文释义来自 ECDICT (MIT)",
         entries = outputEntries
     };
     var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
@@ -575,6 +603,43 @@ static int BuildEedict(string[] arguments, string output)
 
 static bool HasFlag(string[] arguments, string name) =>
     arguments.Any(argument => string.Equals(argument, name, StringComparison.OrdinalIgnoreCase));
+
+/// <summary>Normalizes a professional term for de-duplication and lookup:
+/// lower-cased, with '-', '_' and '/' treated as word separators ("A/D Converter",
+/// "a_d_converter" and "a d converter" all collapse to "a d converter").</summary>
+static string NormalizeEedictKey(string value)
+{
+    var builder = new StringBuilder(value.Length);
+    var pendingSpace = false;
+    foreach (var character in value)
+    {
+        if (char.IsWhiteSpace(character) || character is '-' or '_' or '/')
+        {
+            if (builder.Length > 0)
+            {
+                pendingSpace = true;
+            }
+
+            continue;
+        }
+
+        if (pendingSpace)
+        {
+            builder.Append(' ');
+            pendingSpace = false;
+        }
+
+        // Superscript digits collapse to normal digits so that "I²C" and "I2C" merge.
+        builder.Append(char.ToLowerInvariant(character switch
+        {
+            '²' => '2',
+            '³' => '3',
+            _ => character
+        }));
+    }
+
+    return builder.ToString();
+}
 
 static string? GetOption(string[] arguments, string name)
 {
@@ -619,5 +684,61 @@ internal sealed class Accumulator(string key, string name)
         {
             Frequency = frequency;
         }
+    }
+}
+
+/// <summary>Merged entry of the professional (electronics) dictionary. Rows for the same
+/// normalized term may come from several source files; each field keeps its best value.</summary>
+internal sealed class EedictDraft(string en)
+{
+    public string En { get; private set; } = en;
+
+    public string Zh { get; private set; } = string.Empty;
+
+    public bool Abbr { get; private set; }
+
+    public string Full { get; private set; } = string.Empty;
+
+    public string? Explain { get; private set; }
+
+    public void Merge(string en, string zh, bool abbr, string full, string? explain)
+    {
+        // Prefer a Chinese name over an abbreviation/symbol; otherwise keep the first.
+        if (!HasCjk(Zh) && HasCjk(zh))
+        {
+            Zh = zh;
+        }
+        else if (Zh.Length == 0)
+        {
+            Zh = zh;
+        }
+
+        Abbr |= abbr;
+
+        if (Full.Length == 0 && full.Length > 0)
+        {
+            Full = full;
+        }
+
+        Explain ??= explain;
+
+        // Prefer a display form that keeps the original casing (e.g. "ADC" over "adc").
+        if (!En.Any(char.IsUpper) && en.Any(char.IsUpper))
+        {
+            En = en;
+        }
+    }
+
+    private static bool HasCjk(string text)
+    {
+        foreach (var character in text)
+        {
+            if (character is >= '\u3400' and <= '\u4DBF' or >= '\u4E00' and <= '\u9FFF' or >= '\uF900' and <= '\uFAFF')
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

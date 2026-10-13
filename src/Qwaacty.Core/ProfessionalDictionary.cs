@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -60,7 +61,7 @@ public sealed class ProfessionalDictionary
             throw new InvalidDataException("专业词库文件没有词条。");
         }
 
-        var byTerm = new Dictionary<string, ProfessionalEntry>(payload.Entries.Count, StringComparer.OrdinalIgnoreCase);
+        var byTerm = new Dictionary<string, ProfessionalEntry>(payload.Entries.Count, StringComparer.Ordinal);
         var byChinese = new Dictionary<string, ProfessionalEntry>(payload.Entries.Count, StringComparer.Ordinal);
         foreach (var item in payload.Entries)
         {
@@ -75,7 +76,12 @@ public sealed class ProfessionalDictionary
                 item.Abbr,
                 string.IsNullOrWhiteSpace(item.Explain) ? null : item.Explain.Trim(),
                 string.IsNullOrWhiteSpace(item.Link) ? string.Empty : item.Link.Trim());
-            byTerm[entry.Term] = entry;
+            var termKey = NormalizeKey(entry.Term);
+            if (termKey.Length > 0)
+            {
+                byTerm[termKey] = entry;
+            }
+
             // Several English terms can share one Chinese name; keep the first (the build
             // emits entries in alphabetical order, so the result is deterministic).
             byChinese.TryAdd(entry.Chinese, entry);
@@ -90,7 +96,9 @@ public sealed class ProfessionalDictionary
     }
 
     /// <summary>Finds an entry by English term (exact, then simple morphology such as
-    /// plurals) or by Chinese name.</summary>
+    /// plurals) or by Chinese name. English matching ignores case and treats '-', '_'
+    /// and '/' as word separators, so "A/D Converter", "a_d_converter" and
+    /// "a d converter" all resolve to the same entry.</summary>
     public bool TryFind(string query, out ProfessionalEntry entry)
     {
         entry = null!;
@@ -100,7 +108,8 @@ public sealed class ProfessionalDictionary
             return false;
         }
 
-        if (_byTerm.TryGetValue(normalized, out var direct))
+        var termKey = NormalizeKey(normalized);
+        if (termKey.Length > 0 && _byTerm.TryGetValue(termKey, out var direct))
         {
             entry = direct;
             return true;
@@ -108,7 +117,8 @@ public sealed class ProfessionalDictionary
 
         foreach (var candidate in EnglishMorphology.Candidates(normalized))
         {
-            if (_byTerm.TryGetValue(candidate, out var inflected))
+            var candidateKey = NormalizeKey(candidate);
+            if (candidateKey.Length > 0 && _byTerm.TryGetValue(candidateKey, out var inflected))
             {
                 entry = inflected;
                 return true;
@@ -122,6 +132,42 @@ public sealed class ProfessionalDictionary
         }
 
         return false;
+    }
+
+    /// <summary>Normalizes a term for the English lookup table: lower-cased, with
+    /// whitespace, '-', '_' and '/' all collapsing to a single space, and superscript
+    /// digits folded to normal digits ("I²C" == "I2C").</summary>
+    private static string NormalizeKey(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        var pendingSpace = false;
+        foreach (var character in value)
+        {
+            if (char.IsWhiteSpace(character) || character is '-' or '_' or '/')
+            {
+                if (builder.Length > 0)
+                {
+                    pendingSpace = true;
+                }
+
+                continue;
+            }
+
+            if (pendingSpace)
+            {
+                builder.Append(' ');
+                pendingSpace = false;
+            }
+
+            builder.Append(char.ToLowerInvariant(character switch
+            {
+                '²' => '2',
+                '³' => '3',
+                _ => character
+            }));
+        }
+
+        return builder.ToString();
     }
 
     private sealed class Payload

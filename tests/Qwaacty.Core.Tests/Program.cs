@@ -488,12 +488,16 @@ RunSync("Morphology recovers irregular forms and chat abbreviations", () =>
 
 RunSync("Professional dictionary parses and answers both directions", () =>
 {
-    const string payload = """{"version":1,"entries":[{"en":"impedance","zh":"阻抗","abbr":false,"explain":"The opposition to alternating current.","link":"https://baike.baidu.com/item/impedance"},{"en":"VLSI","zh":"超大规模集成电路","abbr":true,"explain":null,"link":"https://baike.baidu.com/item/VLSI"},{"en":"transistor","zh":"晶体管","abbr":false,"explain":"A semiconductor device.","link":"https://baike.baidu.com/item/transistor"}]}""";
+    const string payload = """{"version":2,"entries":[{"en":"impedance","zh":"阻抗","abbr":false,"explain":"The opposition to alternating current.","link":"https://baike.baidu.com/item/impedance"},{"en":"VLSI","zh":"超大规模集成电路","abbr":true,"explain":null,"link":"https://baike.baidu.com/item/VLSI"},{"en":"transistor","zh":"晶体管","abbr":false,"explain":"A semiconductor device.","link":"https://baike.baidu.com/item/transistor"},{"en":"A/D Converter","zh":"A/D 转换器","abbr":false,"explain":null,"link":"https://baike.baidu.com/item/A%2FD%20Converter"},{"en":"D Flip-Flop","zh":"D触发器","abbr":false,"explain":"边沿触发的存储元件。","link":"https://baike.baidu.com/item/D%20Flip-Flop"}]}""";
     var dictionary = ProfessionalDictionary.Load(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(payload)));
-    Assert(dictionary.Count == 3, $"Expected three entries, got {dictionary.Count}.");
+    Assert(dictionary.Count == 5, $"Expected five entries, got {dictionary.Count}.");
     Assert(dictionary.TryFind("impedance", out var impedance) && impedance.Chinese == "阻抗", "English term lookup failed.");
     Assert(dictionary.TryFind("transistors", out var transistor) && transistor.Term == "transistor", "Plural morphology lookup failed.");
     Assert(dictionary.TryFind("超大规模集成电路", out var vlsi) && vlsi.IsAbbreviation, "Chinese lookup failed.");
+    Assert(dictionary.TryFind("a/d converter", out var slashForm) && slashForm.Term == "A/D Converter", "Slash-form lookup failed.");
+    Assert(dictionary.TryFind("A D Converter", out _), "Space-form lookup failed.");
+    Assert(dictionary.TryFind("d-flip-flop", out var flipFlop) && flipFlop.Term == "D Flip-Flop", "Hyphen-form lookup failed.");
+    Assert(dictionary.TryFind("D FLIP FLOP", out _), "Upper-case space-form lookup failed.");
     Assert(!dictionary.TryFind("not-a-term", out _), "Unknown terms must miss.");
 });
 

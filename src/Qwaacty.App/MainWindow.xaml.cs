@@ -1647,7 +1647,7 @@ public partial class MainWindow : Window
             : File.Exists(professionalPath)
                 ? "状态：文件已下载，重新下载以加载"
                 : "状态：未下载（专业模式无法使用）";
-        ProfessionalDownloadButton.Content = File.Exists(professionalPath) ? "重新下载 / 更新" : "下载专业词库（约 200KB）";
+        ProfessionalDownloadButton.Content = File.Exists(professionalPath) ? "重新下载 / 更新" : "下载专业词库（约 1MB）";
     }
 
     private void OnMousePointerPressed()

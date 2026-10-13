@@ -100,12 +100,16 @@ if ($LexiconSource) {
             throw "Real lexicon verification failed."
         }
 
-        # Professional (electronics) dictionary: course wordlist + curated terms,
-        # explanations from the local ECDICT csv.
+        # Professional (electronics) dictionary: curated terms + course wordlist +
+        # hand-written logic/hardware concepts + external glossaries (ADI, EE_Vocabulary);
+        # fallback explanations from the local ECDICT csv.
         $eedictOutput = Join-Path $dictsPath "eedict.json"
         $eedictArguments = @("--eedict-output", $eedictOutput,
             "--eedict-vocab", (Join-Path $lexiconDataDir "ee-course-vocab.tsv"),
-            "--eedict-vocab", (Join-Path $lexiconDataDir "ee-extra-vocab.tsv"))
+            "--eedict-vocab", (Join-Path $lexiconDataDir "ee-extra-vocab.tsv"),
+            "--eedict-vocab", (Join-Path $lexiconDataDir "ee-logic-vocab.tsv"),
+            "--eedict-vocab", (Join-Path $lexiconDataDir "ee-adi-vocab.tsv"),
+            "--eedict-vocab", (Join-Path $lexiconDataDir "ee-phillweston-vocab.tsv"))
         if ($EcdictSource -and (Test-Path -LiteralPath $EcdictSource)) {
             $eedictArguments += @("--eedict-ecdict", $EcdictSource)
         }
@@ -163,7 +167,7 @@ Qwaacty — 绿色版（免安装）
 2. 便携设置：快捷键、在线补查、开机启动、浮窗外观等设置保存在本文件夹的 settings.json，不写入系统其他位置。
 
 使用方法：
-- 键入实时翻译：勾选主窗口「键入实时翻译」或按 Ctrl+Alt+Shift+T 开关。打字时自动显示当前单词/中文片段（支持变形词：running→run、studied→study 等自动还原）。离线词库（约 43 万词条）与专业词库（电子信息：中英术语+解释）请在主窗口「词库」页点击下载（约 34MB / 200KB，下载后立即生效）。
+- 键入实时翻译：勾选主窗口「键入实时翻译」或按 Ctrl+Alt+Shift+T 开关。打字时自动显示当前单词/中文片段（支持变形词：running→run、studied→study 等自动还原）。离线词库（约 43 万词条）与专业词库（电子信息：中英术语+解释）请在主窗口「词库」页点击下载（约 34MB / 1MB，下载后立即生效）。
 - 专业词库：勾选主页「专业词库（电子信息）」或按 Ctrl+Alt+Shift+P 开关；开启后划词/截图命中专业词条时，将以中英对照+术语解释展示，顶部可按需点击「AI 增强翻译」，并附百科链接。
 - 划词翻译：勾选「划词翻译」或按 Ctrl+Alt+Shift+S 开关；选中文本后按 Ctrl+Alt+Shift+D 翻译（按下后立即显示"正在读取"反馈）。
 - AI 翻译（可选）：在「AI 翻译」区域选择服务商（推荐 DeepSeek）→ 到服务商官网注册并创建 API Key → 将 Key 粘贴到"API Key"框 → 点「测试连接」确认成功。启用后，本地词库未收录的单词、短语与划词句子会优先由 AI 翻译（流式逐字显示，结果自动缓存）。

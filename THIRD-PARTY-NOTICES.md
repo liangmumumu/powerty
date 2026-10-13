@@ -24,8 +24,10 @@
 ## 电子信息专业词库（`dicts\eedict.json`）
 
 - 术语与中文释义参考：安徽大学电子信息工程学院《专业英语-词汇复习-2026》（<https://github.com/caomax361-ops/professional-english-vocab-2026>，该仓库未声明许可证，仅作术语对照数据收录并在此注明来源）
-- 补充词条：由本项目整理的标准电子工程术语
-- 英文解释：取自 ECDICT（MIT，<https://github.com/skywind3000/ECDICT>）
+- 术语与中文详解：ADI（Analog Devices）官方术语表《Glossary of EE Terms》（<https://www.analog.com/cn/design-center/glossary.html>，内容版权归 Analog Devices, Inc. 所有，仅作个人学习用途；本项目收录其社区抓取整理版本 <https://github.com/WangShuXian6/blog/issues/164>）
+- 专业词汇中英对照：Phillweston/EE_Vocabulary《电子类专业英语词汇》（<https://github.com/Phillweston/EE_Vocabulary>，该仓库未声明许可证，仅作词汇对照数据收录并在此注明来源）
+- 补充词条与硬件/嵌入式概念词条：由本项目整理及撰写解释
+- 英文释义兜底：取自 ECDICT（MIT，<https://github.com/skywind3000/ECDICT>）
 - 百科链接：仅指向百度百科公开条目链接，不内嵌其内容
 
 两份词库文件通过本仓库的 release `dicts-v1` 分发；若需再分发请一并保留本声明。

@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>0.13.0</Version>
+    <Version>0.14.0</Version>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <!-- Delivery builds must not embed build-machine paths: without this the assembly's
