@@ -36,6 +36,8 @@ internal sealed class AppSettings
     public string ScreenshotHotkey { get; set; } = "Ctrl+Alt+Shift+X";
     public string SelectionToggleHotkey { get; set; } = "Ctrl+Alt+Shift+S";
     public string SelectionAutoToggleHotkey { get; set; } = "Ctrl+Alt+Shift+A";
+    public bool ProfessionalModeEnabled { get; set; }
+    public string ProfessionalHotkey { get; set; } = "Ctrl+Alt+Shift+P";
 }
 
 internal static class SettingsStore
@@ -122,6 +124,19 @@ internal static class SettingsStore
         {
             settings.PopupWidth = 760;
             settings.PopupMaxHeight = 84;
+            needsRewrite = true;
+        }
+
+        if (settings.SettingsVersion < 13)
+        {
+            // v12 introduced the input-translation module (later reverted); v13 adds the
+            // professional (electronics) dictionary module. Both only need defaults.
+            needsRewrite = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.ProfessionalHotkey))
+        {
+            settings.ProfessionalHotkey = "Ctrl+Alt+Shift+P";
             needsRewrite = true;
         }
 
@@ -231,7 +246,7 @@ internal static class SettingsStore
         }
     }
 
-    private const int CurrentSettingsVersion = 11;
+    private const int CurrentSettingsVersion = 13;
 
     public static void Save(AppSettings settings)
     {

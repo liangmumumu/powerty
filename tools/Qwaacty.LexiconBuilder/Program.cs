@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Qwaacty.Core;
@@ -16,6 +17,13 @@ var ecdictMaxBnc = ParseLimit(GetOption(args, "--ecdict-max-bnc"), 60000);
 var ecdictMaxFrq = ParseLimit(GetOption(args, "--ecdict-max-frq"), 60000);
 var ecdictPhraseWords = ParseLimit(GetOption(args, "--ecdict-phrase-words"), 0);
 var ecdictIncludeAll = HasFlag(args, "--ecdict-include-all");
+
+// Professional (electronics) dictionary mode runs on its own inputs and exits.
+var eedictOutput = GetOption(args, "--eedict-output");
+if (eedictOutput is not null)
+{
+    return BuildEedict(args, eedictOutput);
+}
 if (source is null || output is null)
 {
     Console.Error.WriteLine("Usage: Qwaacty.LexiconBuilder --source <qwerty-learner-master directory> --output <lexicon.ttlx> [--ecdict <ecdict.csv>]");
@@ -416,6 +424,154 @@ static int BestFrequency(int bnc, int frq)
 
 static int ParseLimit(string? value, int fallback) =>
     int.TryParse(value, out var parsed) && parsed >= 0 ? parsed : fallback;
+
+static int BuildEedict(string[] arguments, string output)
+{
+    var vocabPaths = new List<string>();
+    string? eedictCsv = null;
+    for (var index = 0; index < arguments.Length - 1; index++)
+    {
+        if (arguments[index] == "--eedict-vocab")
+        {
+            vocabPaths.Add(arguments[index + 1]);
+        }
+        else if (arguments[index] == "--eedict-ecdict")
+        {
+            eedictCsv = arguments[index + 1];
+        }
+    }
+
+    if (vocabPaths.Count == 0)
+    {
+        Console.Error.WriteLine("Usage: --eedict-output <json> --eedict-vocab <tsv> [--eedict-vocab <tsv>...] [--eedict-ecdict <csv>]");
+        return 1;
+    }
+
+    // ECDICT columns: 0 word, 1 phonetic, 2 definition (English), 3 translation (Chinese).
+    var englishDefinitions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    if (eedictCsv is not null && File.Exists(eedictCsv))
+    {
+        var firstRow = true;
+        foreach (var fields in EcdictCsv.ReadRows(eedictCsv))
+        {
+            if (firstRow)
+            {
+                firstRow = false;
+                if (fields.Length > 0 && string.Equals(fields[0], "word", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+            }
+
+            if (fields.Length < 3)
+            {
+                continue;
+            }
+
+            var word = fields[0].Trim();
+            var definition = fields[2].Trim();
+            if (word.Length == 0 || definition.Length == 0 || englishDefinitions.ContainsKey(word))
+            {
+                continue;
+            }
+
+            englishDefinitions[word] = definition;
+        }
+    }
+
+    var entries = new List<(string En, string Zh, bool Abbr, string Full)>();
+    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    foreach (var vocabPath in vocabPaths)
+    {
+        if (!File.Exists(vocabPath))
+        {
+            Console.Error.WriteLine($"Vocab file not found: {vocabPath}");
+            return 1;
+        }
+
+        foreach (var rawLine in File.ReadLines(vocabPath, Encoding.UTF8))
+        {
+            var line = rawLine.TrimEnd();
+            if (line.Length == 0 || line.StartsWith('#'))
+            {
+                continue;
+            }
+
+            var parts = line.Split('\t');
+            if (parts.Length < 3)
+            {
+                continue;
+            }
+
+            var en = parts[0].Trim();
+            var zh = parts[1].Trim();
+            var abbr = parts[2].Trim().Equals("abbr", StringComparison.OrdinalIgnoreCase);
+            var full = parts.Length > 3 ? parts[3].Trim() : string.Empty;
+            if (en.Length == 0 || zh.Length == 0 || !seen.Add(en))
+            {
+                continue;
+            }
+
+            entries.Add((en, zh, abbr, full));
+        }
+    }
+
+    var squash = new Regex(@"\s+", RegexOptions.Compiled);
+    var outputEntries = entries
+        .OrderBy(entry => entry.En, StringComparer.OrdinalIgnoreCase)
+        .Select(entry =>
+        {
+            string? explain = null;
+            if (entry.Abbr)
+            {
+                explain = entry.Full.Length > 0 ? $"缩写：{entry.Full}；中文释义：{entry.Zh}。" : $"中文释义：{entry.Zh}。";
+            }
+            else if (englishDefinitions.TryGetValue(entry.En, out var definition))
+            {
+                var squashed = squash.Replace(definition.Replace("\r", " ").Replace("\n", " "), " ").Trim();
+                if (squashed.Length > 400)
+                {
+                    squashed = squashed[..400] + "…";
+                }
+
+                explain = squashed;
+            }
+
+            var link = "https://baike.baidu.com/item/" + Uri.EscapeDataString(entry.Abbr ? entry.En.ToUpperInvariant() : entry.En);
+            return new
+            {
+                en = entry.En,
+                zh = entry.Zh,
+                abbr = entry.Abbr,
+                explain,
+                link
+            };
+        })
+        .ToArray();
+
+    var directory = Path.GetDirectoryName(Path.GetFullPath(output));
+    if (!string.IsNullOrEmpty(directory))
+    {
+        Directory.CreateDirectory(directory);
+    }
+
+    var payload = new
+    {
+        version = 1,
+        generated = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+        source = "安徽大学电子信息工程学院《专业英语-词汇复习-2026》(github.com/caomax361-ops/professional-english-vocab-2026) + 项目整理标准术语 + ECDICT (MIT) 释义",
+        entries = outputEntries
+    };
+    var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
+    {
+        WriteIndented = false,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    });
+    File.WriteAllText(output, json, new UTF8Encoding(false));
+    Console.WriteLine($"EEDICT entries: {outputEntries.Length} (with explanation: {outputEntries.Count(entry => entry.explain is not null)})");
+    Console.WriteLine($"Output: {output} ({new FileInfo(output).Length / 1024.0:F1} KB)");
+    return 0;
+}
 
 static bool HasFlag(string[] arguments, string name) =>
     arguments.Any(argument => string.Equals(argument, name, StringComparison.OrdinalIgnoreCase));

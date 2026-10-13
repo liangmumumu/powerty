@@ -15,8 +15,10 @@ $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = "1"
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
 $publishPath = Join-Path $root "artifacts\publish"
 $installerPath = Join-Path $root "artifacts\installer"
+$dictsPath = Join-Path $root "artifacts\dicts"
 $testProject = Join-Path $root "tests\Qwaacty.Core.Tests\Qwaacty.Core.Tests.csproj"
 $lexiconProject = Join-Path $root "tools\Qwaacty.LexiconBuilder\Qwaacty.LexiconBuilder.csproj"
+$lexiconDataDir = Join-Path $root "tools\Qwaacty.LexiconBuilder\data"
 
 if (-not $LexiconSource) {
     $defaultLexiconSource = Join-Path (Split-Path -Parent $root) "qwerty_typing_translating\qwerty-learner-master"
@@ -71,7 +73,10 @@ else {
 
 if ($LexiconSource) {
     if (Test-Path -LiteralPath $LexiconSource) {
-        $lexiconOutput = Join-Path $publishPath "dicts\lexicon.ttlx"
+        New-Item -ItemType Directory -Force -Path $dictsPath | Out-Null
+        # Dictionaries land in artifacts\dicts (uploaded to the "dicts-v1" release);
+        # they are deliberately NOT bundled into the installer or green build any more.
+        $lexiconOutput = Join-Path $dictsPath "lexicon.ttlx"
         $lexiconArguments = @("--source", $LexiconSource, "--output", $lexiconOutput)
         if ($EcdictSource -and (Test-Path -LiteralPath $EcdictSource)) {
             $lexiconArguments += @("--ecdict", $EcdictSource, "--ecdict-phrase-words", "6")
@@ -93,6 +98,21 @@ if ($LexiconSource) {
         & $dotnet run --project $testProject --configuration Release -- --lexicon $lexiconOutput
         if ($LASTEXITCODE -ne 0) {
             throw "Real lexicon verification failed."
+        }
+
+        # Professional (electronics) dictionary: course wordlist + curated terms,
+        # explanations from the local ECDICT csv.
+        $eedictOutput = Join-Path $dictsPath "eedict.json"
+        $eedictArguments = @("--eedict-output", $eedictOutput,
+            "--eedict-vocab", (Join-Path $lexiconDataDir "ee-course-vocab.tsv"),
+            "--eedict-vocab", (Join-Path $lexiconDataDir "ee-extra-vocab.tsv"))
+        if ($EcdictSource -and (Test-Path -LiteralPath $EcdictSource)) {
+            $eedictArguments += @("--eedict-ecdict", $EcdictSource)
+        }
+
+        & $dotnet run --project $lexiconProject --configuration Release -- @eedictArguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "Professional dictionary build failed."
         }
     }
     else {
@@ -128,14 +148,9 @@ if ($Portable) {
     Get-ChildItem -Path $portablePath -Filter *.pdb | Remove-Item -Force
     New-Item -ItemType File -Force -Path (Join-Path $portablePath "portable.txt") | Out-Null
 
-    $publishedLexicon = Join-Path $publishPath "dicts\lexicon.ttlx"
-    if (Test-Path -LiteralPath $publishedLexicon) {
-        New-Item -ItemType Directory -Force -Path (Join-Path $portablePath "dicts") | Out-Null
-        Copy-Item -LiteralPath $publishedLexicon -Destination (Join-Path $portablePath "dicts\lexicon.ttlx") -Force
-    }
-    else {
-        Write-Host "No lexicon found for the portable build; the app will use built-in demo entries."
-    }
+    # Dictionaries are NOT bundled any more: the app ships a 词库 page whose download
+    # buttons pull lexicon.ttlx / eedict.json from the "dicts-v1" GitHub release.
+    Write-Host "Dictionaries are not bundled; users download them from the in-app 词库 page."
 
     $usageText = @'
 Qwaacty — 绿色版（免安装）
@@ -148,7 +163,8 @@ Qwaacty — 绿色版（免安装）
 2. 便携设置：快捷键、在线补查、开机启动、浮窗外观等设置保存在本文件夹的 settings.json，不写入系统其他位置。
 
 使用方法：
-- 键入实时翻译：勾选主窗口「键入实时翻译」或按 Ctrl+Alt+Shift+T 开关。打字时自动显示当前单词/中文片段（支持变形词：running→run、studied→study 等自动还原）。离线词库约 43 万词条（合并 ECDICT 词典，含短语与常见对话用词），中文反查接近全覆盖。
+- 键入实时翻译：勾选主窗口「键入实时翻译」或按 Ctrl+Alt+Shift+T 开关。打字时自动显示当前单词/中文片段（支持变形词：running→run、studied→study 等自动还原）。离线词库（约 43 万词条）与专业词库（电子信息：中英术语+解释）请在主窗口「词库」页点击下载（约 34MB / 200KB，下载后立即生效）。
+- 专业词库：勾选主页「专业词库（电子信息）」或按 Ctrl+Alt+Shift+P 开关；开启后划词/截图命中专业词条时，将以中英对照+术语解释展示，顶部可按需点击「AI 增强翻译」，并附百科链接。
 - 划词翻译：勾选「划词翻译」或按 Ctrl+Alt+Shift+S 开关；选中文本后按 Ctrl+Alt+Shift+D 翻译（按下后立即显示"正在读取"反馈）。
 - AI 翻译（可选）：在「AI 翻译」区域选择服务商（推荐 DeepSeek）→ 到服务商官网注册并创建 API Key → 将 Key 粘贴到"API Key"框 → 点「测试连接」确认成功。启用后，本地词库未收录的单词、短语与划词句子会优先由 AI 翻译（流式逐字显示，结果自动缓存）。
 - 弹窗自动关闭规则：自动查询的弹窗在你点击任意处（取消划词）时自动关闭；快捷键弹窗可选"松开按键后自动关闭"（至少显示 1.5 秒便于阅读）或"保持显示、手动关闭"，在设置中自由切换。

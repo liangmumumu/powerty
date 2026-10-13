@@ -1,0 +1,389 @@
+# Qwaacty 专业词库（电子信息）补充词表
+# 由项目维护者整理的标准电子工程术语（en/chinese/type/full）
+# 列：english <TAB> chinese <TAB> type(word/abbr) <TAB> full(abbr 展开，可空)
+voltage	电压	word	
+current	电流	word	
+resistance	电阻	word	
+resistor	电阻器	word	
+capacitor	电容器	word	
+inductor	电感器	word	
+inductance	电感	word	
+capacitance	电容	word	
+conductance	电导	word	
+admittance	导纳	word	
+reactance	电抗	word	
+impedance	阻抗	word	
+resonance	谐振；共振	word	
+frequency response	频率响应	word	
+transfer function	传递函数	word	
+kirchhoff's laws	基尔霍夫定律	word	
+ohm's law	欧姆定律	word	
+node	节点	word	
+mesh	网孔；网格	word	
+branch	支路	word	
+loop	回路	word	
+series	串联	word	
+parallel	并联	word	
+ground	接地；地	word	
+potential difference	电位差	word	
+electromotive force	电动势	word	
+direct current	直流	word	
+alternating current	交流	word	
+waveform	波形	word	
+sine wave	正弦波	word	
+square wave	方波	word	
+triangle wave	三角波	word	
+amplitude	幅度；振幅	word	
+phase	相位	word	
+phase shift	相移	word	
+peak value	峰值	word	
+root mean square	均方根	word	
+average value	平均值	word	
+instantaneous value	瞬时值	word	
+period	周期	word	
+angular frequency	角频率	word	
+harmonic	谐波	word	
+fundamental	基波；基频	word	
+bandwidth	带宽	word	
+cutoff frequency	截止频率	word	
+quality factor	品质因数	word	
+damping	阻尼	word	
+oscillation	振荡	word	
+oscillator	振荡器	word	
+transient	暂态；瞬态	word	
+steady state	稳态	word	
+time constant	时间常数	word	
+circuit analysis	电路分析	word	
+network	网络	word	
+two-port network	二端口网络	word	
+equivalent circuit	等效电路	word	
+superposition	叠加	word	
+thevenin's theorem	戴维南定理	word	
+norton's theorem	诺顿定理	word	
+power factor	功率因数	word	
+apparent power	视在功率	word	
+active power	有功功率	word	
+reactive power	无功功率	word	
+energy	能量	word	
+power dissipation	功率损耗	word	
+efficiency	效率	word	
+battery	电池	word	
+electrolytic capacitor	电解电容	word	
+ceramic capacitor	陶瓷电容	word	
+potentiometer	电位器	word	
+transformer	变压器	word	
+winding	绕组	word	
+primary winding	初级绕组	word	
+secondary winding	次级绕组	word	
+turns ratio	匝数比	word	
+magnetic flux	磁通量	word	
+flux density	磁通密度	word	
+permeability	磁导率	word	
+permittivity	介电常数	word	
+reluctance	磁阻	word	
+hysteresis	磁滞	word	
+eddy current	涡流	word	
+electromagnet	电磁铁	word	
+solenoid	螺线管	word	
+relay	继电器	word	
+contactor	接触器	word	
+fuse	保险丝	word	
+circuit breaker	断路器	word	
+switch	开关	word	
+diode	二极管	word	
+rectifier	整流器	word	
+rectification	整流	word	
+zener diode	齐纳二极管；稳压管	word	
+light emitting diode	发光二极管	word	
+photodiode	光电二极管	word	
+transistor	晶体管	word	
+bipolar junction transistor	双极结型晶体管	word	
+field effect transistor	场效应晶体管	word	
+mosfet	金属氧化物半导体场效应晶体管	word	
+junction	结	word	
+pn junction	PN 结	word	
+depletion region	耗尽区	word	
+doping	掺杂	word	
+carrier	载流子	word	
+electron	电子	word	
+hole	空穴	word	
+majority carrier	多数载流子	word	
+minority carrier	少数载流子	word	
+threshold voltage	阈值电压	word	
+saturation	饱和	word	
+breakdown	击穿	word	
+avalanche breakdown	雪崩击穿	word	
+gate	栅极	word	
+source	源极	word	
+drain	漏极	word	
+base	基极	word	
+collector	集电极	word	
+emitter	发射极	word	
+amplifier	放大器	word	
+operational amplifier	运算放大器	word	
+gain	增益	word	
+voltage gain	电压增益	word	
+power gain	功率增益	word	
+feedback	反馈	word	
+negative feedback	负反馈	word	
+positive feedback	正反馈	word	
+open loop gain	开环增益	word	
+input impedance	输入阻抗	word	
+output impedance	输出阻抗	word	
+common emitter	共射	word	
+common base	共基	word	
+common collector	共集	word	
+biasing	偏置	word	
+quiescent point	静态工作点	word	
+coupling	耦合	word	
+decoupling	去耦	word	
+bypass capacitor	旁路电容	word	
+differential amplifier	差分放大器	word	
+comparator	比较器	word	
+integrator	积分器	word	
+differentiator	微分器	word	
+active filter	有源滤波器	word	
+low pass filter	低通滤波器	word	
+high pass filter	高通滤波器	word	
+band pass filter	带通滤波器	word	
+band stop filter	带阻滤波器	word	
+notch filter	陷波滤波器	word	
+attenuator	衰减器	word	
+attenuation	衰减	word	
+decibel	分贝	word	
+signal	信号	word	
+analog signal	模拟信号	word	
+digital signal	数字信号	word	
+sampling	采样	word	
+quantization	量化	word	
+aliasing	混叠	word	
+nyquist frequency	奈奎斯特频率	word	
+spectrum	频谱	word	
+fourier transform	傅里叶变换	word	
+laplace transform	拉普拉斯变换	word	
+convolution	卷积	word	
+correlation	相关	word	
+autocorrelation	自相关	word	
+modulation	调制	word	
+demodulation	解调	word	
+amplitude modulation	调幅	word	
+frequency modulation	调频	word	
+phase modulation	相位调制	word	
+carrier	载波	word	
+sideband	边带	word	
+baseband	基带	word	
+passband	通带	word	
+stopband	阻带	word	
+multiplexing	复用	word	
+frequency division multiplexing	频分复用	word	
+time division multiplexing	时分复用	word	
+channel	信道	word	
+noise	噪声	word	
+thermal noise	热噪声	word	
+signal to noise ratio	信噪比	word	
+distortion	失真	word	
+interference	干扰	word	
+electromagnetic interference	电磁干扰	word	
+electromagnetic compatibility	电磁兼容	word	
+shielding	屏蔽	word	
+filter	滤波器	word	
+mixer	混频器	word	
+duplexer	双工器	word	
+antenna	天线	word	
+dipole antenna	偶极天线	word	
+patch antenna	贴片天线	word	
+radiation pattern	辐射方向图	word	
+directivity	方向性	word	
+polarization	极化	word	
+waveguide	波导	word	
+propagation	传播	word	
+reflection	反射	word	
+refraction	折射	word	
+diffraction	绕射；衍射	word	
+impedance matching	阻抗匹配	word	
+standing wave	驻波	word	
+transmission line	传输线	word	
+coaxial cable	同轴电缆	word	
+wave impedance	波阻抗	word	
+electric field	电场	word	
+magnetic field	磁场	word	
+electromagnetic wave	电磁波	word	
+capacitor bank	电容器组	word	
+three phase	三相	word	
+single phase	单相	word	
+line voltage	线电压	word	
+phase voltage	相电压	word	
+induction motor	感应电动机	word	
+synchronous machine	同步电机	word	
+generator	发电机	word	
+motor	电动机	word	
+alternator	交流发电机	word	
+power grid	电网	word	
+substation	变电站	word	
+distribution network	配电网	word	
+transmission	输电；传输	word	
+inverter	逆变器	word	
+converter	变换器；转换器	word	
+dc-dc converter	直流-直流变换器	word	
+pulse width modulation	脉宽调制	word	
+switching power supply	开关电源	word	
+linear regulator	线性稳压器	word	
+voltage regulator	稳压器	word	
+uninterruptible power supply	不间断电源	word	
+charging	充电	word	
+discharge	放电	word	
+lithium battery	锂电池	word	
+solar cell	太阳能电池	word	
+photovoltaic	光伏	word	
+logic gate	逻辑门	word	
+and gate	与门	word	
+or gate	或门	word	
+not gate	非门	word	
+nand gate	与非门	word	
+nor gate	或非门	word	
+xor gate	异或门	word	
+truth table	真值表	word	
+boolean algebra	布尔代数	word	
+flip flop	触发器	word	
+latch	锁存器	word	
+register	寄存器	word	
+shift register	移位寄存器	word	
+counter	计数器	word	
+decoder	译码器	word	
+encoder	编码器	word	
+multiplexer	多路复用器；数据选择器	word	
+demultiplexer	解复用器	word	
+clock	时钟	word	
+clock frequency	时钟频率	word	
+edge triggered	边沿触发	word	
+synchronous	同步	word	
+asynchronous	异步	word	
+state machine	状态机	word	
+finite state machine	有限状态机	word	
+combinational logic	组合逻辑	word	
+sequential logic	时序逻辑	word	
+integrated circuit	集成电路	word	
+chip	芯片	word	
+wafer	晶圆	word	
+die	裸片	word	
+package	封装	word	
+photolithography	光刻	word	
+etching	刻蚀	word	
+cleanroom	洁净室	word	
+nanometer	纳米	word	
+microprocessor	微处理器	word	
+microcontroller	微控制器；单片机	word	
+memory	存储器	word	
+random access memory	随机存取存储器	word	
+read only memory	只读存储器	word	
+flash memory	闪存	word	
+cache	缓存	word	
+bus	总线	word	
+address bus	地址总线	word	
+data bus	数据总线	word	
+peripheral	外设	word	
+interface	接口	word	
+serial communication	串行通信	word	
+parallel communication	并行通信	word	
+protocol	协议	word	
+baud rate	波特率	word	
+firmware	固件	word	
+embedded system	嵌入式系统	word	
+real time	实时	word	
+interrupt	中断	word	
+timer	定时器	word	
+counter register	计数寄存器	word	
+oscilloscope	示波器	word	
+multimeter	万用表	word	
+spectrum analyzer	频谱分析仪	word	
+signal generator	信号发生器	word	
+probe	探头	word	
+calibration	校准	word	
+measurement	测量	word	
+accuracy	精度；准确度	word	
+resolution	分辨率	word	
+sensitivity	灵敏度	word	
+oscilloscope probe	示波器探头	word	
+control system	控制系统	word	
+open loop	开环	word	
+closed loop	闭环	word	
+stability	稳定性	word	
+step response	阶跃响应	word	
+overshoot	超调	word	
+settling time	建立时间	word	
+proportional controller	比例控制器	word	
+feedback loop	反馈环路	word	
+setpoint	设定值	word	
+error signal	误差信号	word	
+robotics	机器人技术	word	
+automation	自动化	word	
+instrumentation	仪器仪表	word	
+sensor	传感器	word	
+transducer	换能器；变送器	word	
+strain gauge	应变片	word	
+thermocouple	热电偶	word	
+accelerometer	加速度计	word	
+gyroscope	陀螺仪	word	
+adc	模数转换器	abbr	Analog-to-Digital Converter
+dac	数模转换器	abbr	Digital-to-Analog Converter
+mcu	微控制器	abbr	Microcontroller Unit
+dsp	数字信号处理器	abbr	Digital Signal Processor
+fpga	现场可编程门阵列	abbr	Field-Programmable Gate Array
+asic	专用集成电路	abbr	Application-Specific Integrated Circuit
+soc	片上系统	abbr	System on Chip
+cpu	中央处理器	abbr	Central Processing Unit
+gpu	图形处理器	abbr	Graphics Processing Unit
+ram	随机存取存储器	abbr	Random Access Memory
+rom	只读存储器	abbr	Read-Only Memory
+gpio	通用输入输出	abbr	General Purpose Input/Output
+uart	通用异步收发器	abbr	Universal Asynchronous Receiver/Transmitter
+i2c	集成电路总线	abbr	Inter-Integrated Circuit
+spi	串行外设接口	abbr	Serial Peripheral Interface
+usb	通用串行总线	abbr	Universal Serial Bus
+ethernet	以太网	word	
+emc	电磁兼容	abbr	Electromagnetic Compatibility
+emi	电磁干扰	abbr	Electromagnetic Interference
+esd	静电放电	abbr	Electrostatic Discharge
+snr	信噪比	abbr	Signal-to-Noise Ratio
+thd	总谐波失真	abbr	Total Harmonic Distortion
+pll	锁相环	abbr	Phase-Locked Loop
+vco	压控振荡器	abbr	Voltage-Controlled Oscillator
+agc	自动增益控制	abbr	Automatic Gain Control
+rf	射频	abbr	Radio Frequency
+vhf	甚高频	abbr	Very High Frequency
+uhf	特高频	abbr	Ultra High Frequency
+gsm	全球移动通信系统	abbr	Global System for Mobile Communications
+lte	长期演进（4G）	abbr	Long Term Evolution
+ofdm	正交频分复用	abbr	Orthogonal Frequency Division Multiplexing
+qam	正交幅度调制	abbr	Quadrature Amplitude Modulation
+mimo	多输入多输出	abbr	Multiple-Input Multiple-Output
+fdd	频分双工	abbr	Frequency Division Duplex
+tdd	时分双工	abbr	Time Division Duplex
+wlan	无线局域网	abbr	Wireless Local Area Network
+wifi	无线保真	abbr	Wireless Fidelity
+gps	全球定位系统	abbr	Global Positioning System
+led	发光二极管	abbr	Light Emitting Diode
+lcd	液晶显示器	abbr	Liquid Crystal Display
+oled	有机发光二极管	abbr	Organic Light Emitting Diode
+pcb	印制电路板	abbr	Printed Circuit Board
+smd	表面贴装器件	abbr	Surface Mount Device
+smt	表面贴装技术	abbr	Surface Mount Technology
+bga	球栅阵列封装	abbr	Ball Grid Array
+ic	集成电路	abbr	Integrated Circuit
+lsi	大规模集成电路	abbr	Large-Scale Integration
+vlsi	超大规模集成电路	abbr	Very Large-Scale Integration
+cmos	互补金属氧化物半导体	abbr	Complementary Metal-Oxide-Semiconductor
+ttl	晶体管-晶体管逻辑	abbr	Transistor-Transistor Logic
+ecl	发射极耦合逻辑	abbr	Emitter-Coupled Logic
+pwm	脉宽调制	abbr	Pulse Width Modulation
+ac	交流	abbr	Alternating Current
+dc	直流	abbr	Direct Current
+rms	均方根	abbr	Root Mean Square
+emf	电动势	abbr	Electromotive Force
+ups	不间断电源	abbr	Uninterruptible Power Supply
+bms	电池管理系统	abbr	Battery Management System
+mppt	最大功率点跟踪	abbr	Maximum Power Point Tracking
+esr	等效串联电阻	abbr	Equivalent Series Resistance
+slew rate	压摆率	word	
+common mode rejection ratio	共模抑制比	word	
+power supply rejection ratio	电源抑制比	word	

@@ -18,6 +18,8 @@
                            Foreground="{StaticResource VsHeadingBrush}" Text="Qwaacty" />
                 <Button x:Name="NavigateHomeButton" Height="38" Margin="0,0,0,5"
                         Style="{StaticResource VsButton}" Content="主页" Click="NavigateHomeButton_OnClick" />
+                <Button x:Name="NavigateLibraryButton" Height="38" Margin="0,0,0,5"
+                        Style="{StaticResource VsButton}" Content="词库" Click="NavigateLibraryButton_OnClick" />
                 <Button x:Name="NavigateSettingsButton" Height="38"
                         Style="{StaticResource VsButton}" Content="Settings" Click="NavigateSettingsButton_OnClick" />
                 <TextBlock Margin="8,20,8,0" FontSize="11" Foreground="{StaticResource VsDimTextBrush}"
@@ -65,6 +67,17 @@
                                           Checked="SelectionCheckBox_OnChanged" Unchecked="SelectionCheckBox_OnChanged" />
                                 <TextBlock x:Name="SelectionHotkeyHint" Margin="24,8,0,0" FontSize="12"
                                            Foreground="{StaticResource VsDimTextBrush}" />
+                            </StackPanel>
+                        </Border>
+                        <Border Margin="0,0,0,10" Padding="18" Background="{StaticResource VsPanelBrush}"
+                                BorderBrush="{StaticResource VsPanelBorderBrush}" BorderThickness="1" CornerRadius="4">
+                            <StackPanel>
+                                <CheckBox x:Name="ProfessionalCheckBox" FontSize="15" FontWeight="SemiBold"
+                                          Style="{StaticResource VsCheckBox}" Content="专业词库（电子信息）"
+                                          Checked="ProfessionalCheckBox_OnChanged"
+                                          Unchecked="ProfessionalCheckBox_OnChanged" />
+                                <TextBlock x:Name="ProfessionalHint" Margin="24,8,0,0" FontSize="12"
+                                           Foreground="{StaticResource VsDimTextBrush}" TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
                         <Border Margin="0,8,0,0" Padding="18" Background="{StaticResource VsPanelBrush}"
@@ -128,9 +141,17 @@
                                     Content="应用" Click="ApplyScreenshotHotkeyButton_OnClick" />
                             <TextBox x:Name="ScreenshotHotkeyTextBox" Style="{StaticResource VsTextBox}" />
                         </DockPanel>
+                        <DockPanel Margin="0,8,0,0">
+                            <TextBlock DockPanel.Dock="Left" Width="150" VerticalAlignment="Center"
+                                       Foreground="{StaticResource VsTextBrush}" Text="专业词库开关" />
+                            <Button DockPanel.Dock="Right" Width="96" Margin="10,0,0,0"
+                                    Style="{StaticResource VsButton}"
+                                    Content="应用" Click="ApplyProfessionalHotkeyButton_OnClick" />
+                            <TextBox x:Name="ProfessionalHotkeyTextBox" Style="{StaticResource VsTextBox}" />
+                        </DockPanel>
                         <TextBlock Margin="0,12,0,0" FontSize="12" Foreground="{StaticResource VsDimTextBrush}"
                                    TextWrapping="Wrap"
-                                   Text="可使用 Ctrl、Alt、Shift、Win 与一个按键组合。默认组合：键入开关 Ctrl+Alt+Shift+T、手动划词触发 Ctrl+Alt+Shift+D、手动划词开关 Ctrl+Alt+Shift+S、自动划词开关 Ctrl+Alt+Shift+A、截图翻译 Ctrl+Alt+Shift+X。" />
+                                   Text="可使用 Ctrl、Alt、Shift、Win 与一个按键组合。默认组合：键入开关 Ctrl+Alt+Shift+T、手动划词触发 Ctrl+Alt+Shift+D、手动划词开关 Ctrl+Alt+Shift+S、自动划词开关 Ctrl+Alt+Shift+A、截图翻译 Ctrl+Alt+Shift+X、专业词库开关 Ctrl+Alt+Shift+P。" />
                         <CheckBox x:Name="OnlineCheckBox" Margin="0,12,0,0"
                                   Style="{StaticResource VsCheckBox}"
                                   Content="本地未命中时，允许在线补查（仅发送当前单词/短语或选中的文本）"
@@ -322,6 +343,51 @@
                     </StackPanel>
                 </Border>
             </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+                <Grid x:Name="LibraryView" Visibility="Collapsed">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource VsHeadingBrush}"
+                                       Text="词库" />
+                            <TextBlock Margin="0,5,0,18" FontSize="12.5" Foreground="{StaticResource VsDimTextBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="词库不再随安装包分发，点击下载即载入生效（完全离线使用）。下载源为本项目 GitHub 仓库的 release「dicts-v1」。" />
+                            <Border Margin="0,0,0,10" Padding="18" Background="{StaticResource VsPanelBrush}"
+                                    BorderBrush="{StaticResource VsPanelBorderBrush}" BorderThickness="1" CornerRadius="4">
+                                <StackPanel>
+                                    <TextBlock FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource VsHeadingBrush}"
+                                               Text="中英词库（约 43 万词条）" />
+                                    <TextBlock Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource VsDimTextBrush}"
+                                               TextWrapping="Wrap"
+                                               Text="通用英汉/汉英词典（ECDICT 合并词表，含短语），供键入/划词/截图翻译使用，约 34MB。" />
+                                    <TextBlock x:Name="LexiconStatusText" Margin="0,8,0,0" FontSize="12.5"
+                                               Foreground="{StaticResource VsTextBrush}" Text="状态：未下载" />
+                                    <ProgressBar x:Name="LexiconDownloadProgress" Height="4" Margin="0,10,0,0"
+                                                 Visibility="Collapsed" Foreground="{StaticResource VsAccentBrush}" />
+                                    <Button x:Name="LexiconDownloadButton" Margin="0,12,0,0" Width="220"
+                                            HorizontalAlignment="Left" Style="{StaticResource VsButton}"
+                                            Content="下载中英词库（约 34MB）" Click="DownloadLexiconButton_OnClick" />
+                                </StackPanel>
+                            </Border>
+                            <Border Margin="0,0,0,10" Padding="18" Background="{StaticResource VsPanelBrush}"
+                                    BorderBrush="{StaticResource VsPanelBorderBrush}" BorderThickness="1" CornerRadius="4">
+                                <StackPanel>
+                                    <TextBlock FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource VsHeadingBrush}"
+                                               Text="专业词库（电子信息）" />
+                                    <TextBlock Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource VsDimTextBrush}"
+                                               TextWrapping="Wrap"
+                                               Text="电子信息专业中英术语与缩略语（含中文释义、英文解释与百科链接）；开启专业模式后划词/截图优先查询，约 200KB。" />
+                                    <TextBlock x:Name="ProfessionalStatusText" Margin="0,8,0,0" FontSize="12.5"
+                                               Foreground="{StaticResource VsTextBrush}" Text="状态：未下载" />
+                                    <ProgressBar x:Name="ProfessionalDownloadProgress" Height="4" Margin="0,10,0,0"
+                                                 Visibility="Collapsed" Foreground="{StaticResource VsAccentBrush}" />
+                                    <Button x:Name="ProfessionalDownloadButton" Margin="0,12,0,0" Width="220"
+                                            HorizontalAlignment="Left" Style="{StaticResource VsButton}"
+                                            Content="下载专业词库（约 200KB）" Click="DownloadEedictButton_OnClick" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
                     </ScrollViewer>
                 </Grid>
             </Grid>

@@ -41,6 +41,8 @@ public partial class LookupWindow : Window
     private string? _messageText;
     private bool _streamMode;
     private int _expandedIndex;
+    private bool _professionalMode;
+    private string? _professionalLinkUrl;
     private bool _userMoved;
     private string? _aiTitle;
     private string? _aiText;
@@ -143,6 +145,7 @@ public partial class LookupWindow : Window
         _typingSourceQuery = compactTyping ? typingSourceQuery : null;
         _typingAnchor = compactTyping ? typingAnchor ?? typingInputBounds : null;
         _typingInputBounds = compactTyping ? typingInputBounds : null;
+        SetProfessionalMode(false);
         ClearAiSection();
         RenderEntries(keepScrollPosition: false);
         var wasVisible = IsVisible;
@@ -177,6 +180,7 @@ public partial class LookupWindow : Window
         _typingPopupMode = typingPopup;
         _typingAnchor = typingPopup ? typingAnchor ?? typingInputBounds : null;
         _typingInputBounds = typingPopup ? typingInputBounds : null;
+        SetProfessionalMode(false);
         ClearAiSection();
         HeaderText.Text = title;
         RenderMessage();
@@ -213,6 +217,7 @@ public partial class LookupWindow : Window
         _typingPopupMode = typingPopup;
         _typingAnchor = typingPopup ? typingAnchor ?? typingInputBounds : null;
         _typingInputBounds = typingPopup ? typingInputBounds : null;
+        SetProfessionalMode(false);
         ClearAiSection();
         HeaderText.Text = "键入翻译";
         RenderMessage();
@@ -282,6 +287,7 @@ public partial class LookupWindow : Window
         _typingPopupMode = typingAnchor is not null || typingInputBounds is not null;
         _typingAnchor = typingAnchor ?? typingInputBounds;
         _typingInputBounds = typingInputBounds;
+        SetProfessionalMode(false);
         HeaderText.Text = title;
         RenderMessage();
         if (!IsVisible)
@@ -324,6 +330,126 @@ public partial class LookupWindow : Window
     }
 
     public void ClearAiSection() => SetAiSection(null, null);
+
+    // ---- 专业词库（电子信息）面板 ----
+
+    /// <summary>Raised when the user clicks the "AI 增强翻译" button on a professional entry.</summary>
+    public event Action? AiEnhanceRequested;
+
+    /// <summary>True while a professional glossary entry is displayed.</summary>
+    public bool IsProfessionalMode => _professionalMode;
+
+    /// <summary>Raised with the encyclopedia URL when the user clicks the wiki link.</summary>
+    public event Action<string>? WikiLinkRequested;
+
+    /// <summary>Displays a professional glossary entry: AI-button on top, the English
+    /// term and the Chinese name at the same size, the explanation and a wiki link.</summary>
+    public void ShowProfessional(ProfessionalEntry entry)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        _messageText = null;
+        _lastEntries = [];
+        _streamMode = false;
+        _expandedIndex = 0;
+        _typingStatusMode = false;
+        _compactTypingMode = false;
+        _typingPopupMode = false;
+        _typingAnchor = null;
+        _typingInputBounds = null;
+        _typingSourceQuery = null;
+        _retainedRows.Clear();
+        RenderRetainedRows();
+        ClearAiSection();
+        EntriesPanel.Children.Clear();
+        ChipsPanel.Children.Clear();
+        HeaderText.Text = entry.IsAbbreviation ? "专业词库 · 电子信息（缩略语）" : "专业词库 · 电子信息";
+        ProfessionalEnText.Text = entry.Term;
+        ProfessionalZhText.Text = entry.Chinese;
+        ProfessionalExplainText.Text = entry.Explanation ?? string.Empty;
+        ProfessionalExplainText.Visibility = entry.Explanation is null ? Visibility.Collapsed : Visibility.Visible;
+        _professionalLinkUrl = string.IsNullOrWhiteSpace(entry.Link) ? null : entry.Link;
+        ProfessionalLinkText.Text = _professionalLinkUrl is null ? string.Empty : $"百科：{entry.Term}（点击打开）";
+        ProfessionalLinkText.Visibility = _professionalLinkUrl is null ? Visibility.Collapsed : Visibility.Visible;
+        ProfessionalAiText.Visibility = Visibility.Collapsed;
+        ProfessionalAiText.Text = string.Empty;
+        ResetAiEnhanceButton();
+        SetProfessionalMode(true);
+        var wasVisible = IsVisible;
+        if (!wasVisible)
+        {
+            Show();
+        }
+
+        FitToContent();
+        UpdateLayout();
+        if (!wasVisible)
+        {
+            PositionNearCursor();
+        }
+
+        LogSlowShow("professional", stopwatch);
+    }
+
+    public void ShowAiEnhanceText(string text)
+    {
+        ProfessionalAiText.Foreground = _textBrush;
+        ProfessionalAiText.Text = text;
+        ProfessionalAiText.Visibility = Visibility.Visible;
+        UpdateLayout();
+        ContentScroll.ScrollToEnd();
+        ScheduleFitToContent();
+    }
+
+    public void ShowAiEnhanceError(string message)
+    {
+        ProfessionalAiText.Foreground = AiErrorBrush;
+        ProfessionalAiText.Text = message;
+        ProfessionalAiText.Visibility = Visibility.Visible;
+        UpdateLayout();
+        ScheduleFitToContent();
+    }
+
+    public void CompleteAiEnhance()
+    {
+        AiEnhanceButton.IsEnabled = true;
+        AiEnhanceButton.Content = "✦ 重新生成 AI 翻译";
+    }
+
+    private void ResetAiEnhanceButton()
+    {
+        AiEnhanceButton.IsEnabled = true;
+        AiEnhanceButton.Content = "✦ AI 增强翻译（点击生成）";
+    }
+
+    private void SetProfessionalMode(bool on)
+    {
+        _professionalMode = on;
+        ProfessionalPanel.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        if (!on)
+        {
+            _professionalLinkUrl = null;
+        }
+    }
+
+    private void AiEnhanceButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        AiEnhanceButton.IsEnabled = false;
+        AiEnhanceButton.Content = "正在生成…";
+        ProfessionalAiText.Foreground = _textBrush;
+        ProfessionalAiText.Text = "AI 正在生成…";
+        ProfessionalAiText.Visibility = Visibility.Visible;
+        UpdateLayout();
+        ScheduleFitToContent();
+        AiEnhanceRequested?.Invoke();
+    }
+
+    private void ProfessionalLink_OnMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_professionalLinkUrl is { Length: > 0 } url)
+        {
+            WikiLinkRequested?.Invoke(url);
+        }
+    }
 
     private void RenderAiSection()
     {

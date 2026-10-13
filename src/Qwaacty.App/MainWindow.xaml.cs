@@ -21,6 +21,9 @@ public partial class MainWindow : Window
     private const int SelectionToggleHotkeyId = 7144;
     private const int ScreenshotHotkeyId = 7145;
     private const int SelectionAutoToggleHotkeyId = 7146;
+    private const int ProfessionalHotkeyId = 7148;
+    private const string LexiconDownloadUrl = "https://github.com/liangmumumu/qwaacty/releases/download/dicts-v1/lexicon.ttlx";
+    private const string EedictDownloadUrl = "https://github.com/liangmumumu/qwaacty/releases/download/dicts-v1/eedict.json";
     private const int TypingReadTimeoutMilliseconds = 1500;
     private const int TypingFallbackStableMilliseconds = 650;
     private const int TypingTranslatePauseMilliseconds = 500;
@@ -37,9 +40,16 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _appearanceSaveTimer;
     private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
     private readonly HttpClient _aiHttpClient = new() { Timeout = TimeSpan.FromSeconds(30) };
+    // Dictionary downloads are large (≈ 34 MB) and can be slow; a long timeout keeps
+    // the streamed copy alive without affecting the request clients above.
+    private readonly HttpClient _downloadClient = new() { Timeout = TimeSpan.FromMinutes(10) };
     private readonly OpenAiCompatibleTranslator _aiTranslator;
     private readonly TranslationCache _translationCache = new();
-    private readonly IDictionaryLookup _dictionaryLookup;
+    private IDictionaryLookup _dictionaryLookup;
+    private ILocalDictionaryProvider _localProvider;
+    private ProfessionalDictionary? _professional;
+    private ProfessionalEntry? _professionalCurrent;
+    private bool _downloadInFlight;
     private readonly AppSettings _settings;
     private HwndSource? _windowSource;
     private WindowsHotkey? _typingHotkey;
@@ -47,6 +57,7 @@ public partial class MainWindow : Window
     private WindowsHotkey? _selectionToggleHotkey;
     private WindowsHotkey? _selectionAutoToggleHotkey;
     private WindowsHotkey? _screenshotHotkey;
+    private WindowsHotkey? _professionalHotkey;
     private ScreenshotOverlayWindow? _screenshotOverlay;
     private WinForms.NotifyIcon? _trayIcon;
     private WinForms.ToolStripMenuItem? _typingTrayItem;
@@ -134,6 +145,11 @@ public partial class MainWindow : Window
             _settings.SelectionAutoToggleHotkey = "Ctrl+Alt+Shift+A";
         }
 
+        if (string.IsNullOrWhiteSpace(_settings.ProfessionalHotkey))
+        {
+            _settings.ProfessionalHotkey = "Ctrl+Alt+Shift+P";
+        }
+
         try
         {
             StartupRegistration.MigrateLegacyValue();
@@ -145,6 +161,8 @@ public partial class MainWindow : Window
         }
 
         var (localProvider, lexiconStatus) = LoadLocalProvider();
+        _localProvider = localProvider;
+        _professional = LoadProfessionalDictionary();
         _dictionaryLookup = new DictionaryLookup(
             localProvider,
             new MyMemoryLookupProvider(_httpClient));
@@ -191,6 +209,8 @@ public partial class MainWindow : Window
         _mouseMonitor.DragSelectCompleted += (start, end, hookTicks) => DispatchInput(() => OnDragSelectCompleted(start, end, hookTicks));
         _lookupWindow.SizeAdjusted += OnLookupWindowSizeAdjusted;
         _lookupWindow.CloseRequested += () => DispatchInput(OnLookupWindowCloseRequested);
+        _lookupWindow.AiEnhanceRequested += () => DispatchInput(OnProfessionalAiEnhanceRequested);
+        _lookupWindow.WikiLinkRequested += url => DispatchInput(() => OpenWikiLink(url));
         // Create the popup's window handle eagerly; the first Show() afterwards is cheap,
         // which keeps the UI thread from stalling long enough for Windows to drop the
         // low-level mouse hook.
@@ -245,6 +265,9 @@ public partial class MainWindow : Window
         SelectionToggleHotkeyTextBox.Text = _settings.SelectionToggleHotkey;
         SelectionAutoToggleHotkeyTextBox.Text = _settings.SelectionAutoToggleHotkey;
         ScreenshotHotkeyTextBox.Text = _settings.ScreenshotHotkey;
+        ProfessionalCheckBox.IsChecked = _settings.ProfessionalModeEnabled;
+        ProfessionalHotkeyTextBox.Text = _settings.ProfessionalHotkey;
+        UpdateLibraryStatus();
         PopupWidthTextBox.Text = _settings.PopupWidth.ToString("F0");
         PopupHeightTextBox.Text = _settings.PopupMaxHeight.ToString("F0");
         BackgroundColorEditor.SetColor(TryParsePopupColor(_settings.PopupBackgroundColor, out var background)
@@ -292,7 +315,7 @@ public partial class MainWindow : Window
             return (lexicon, $"本地词库已加载：{lexicon.WordCount:N0} 个词条。");
         }
 
-        return (new LocalDictionaryProvider(), $"未加载本地词库（{error}），暂用演示词条。");
+        return (new LocalDictionaryProvider(), $"未加载本地词库（{error}），可在「词库」页下载；暂用演示词条。");
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
@@ -307,6 +330,7 @@ public partial class MainWindow : Window
         _selectionToggleHotkey = new WindowsHotkey(handle, SelectionToggleHotkeyId);
         _selectionAutoToggleHotkey = new WindowsHotkey(handle, SelectionAutoToggleHotkeyId);
         _screenshotHotkey = new WindowsHotkey(handle, ScreenshotHotkeyId);
+        _professionalHotkey = new WindowsHotkey(handle, ProfessionalHotkeyId);
         try
         {
             _typingHotkey.Register(_settings.Hotkey);
@@ -360,6 +384,17 @@ public partial class MainWindow : Window
         {
             _pendingHotkeyError = $"截图翻译快捷键（{_settings.ScreenshotHotkey}）注册失败：{exception.Message}";
             DiagnosticsLog.Write("HOTKEY", $"screenshot={_settings.ScreenshotHotkey} FAIL {exception.Message}");
+        }
+
+        try
+        {
+            _professionalHotkey.Register(_settings.ProfessionalHotkey);
+            DiagnosticsLog.Write("HOTKEY", $"professional={_settings.ProfessionalHotkey} ok");
+        }
+        catch (Exception exception) when (exception is Win32Exception or FormatException)
+        {
+            _pendingHotkeyError = $"专业词库快捷键（{_settings.ProfessionalHotkey}）注册失败：{exception.Message}";
+            DiagnosticsLog.Write("HOTKEY", $"professional={_settings.ProfessionalHotkey} FAIL {exception.Message}");
         }
 
         if (_pendingHotkeyError is not null)
@@ -613,6 +648,11 @@ public partial class MainWindow : Window
         SelectionAutoHotkeyHint.Text = $"快捷键开关：{_settings.SelectionAutoToggleHotkey}";
         SelectionHotkeyHint.Text =
             $"翻译：{_settings.SelectionHotkey}    开关：{_settings.SelectionToggleHotkey}";
+        ProfessionalHint.Text = !_settings.ProfessionalModeEnabled
+            ? "已关闭（开启后划词/截图优先查询专业词库；需先在「词库」页下载）"
+            : _professional is not null
+                ? $"快捷键：{_settings.ProfessionalHotkey} — 划词/截图优先专业词库（{_professional.Count} 条，中英对照+解释+百科链接）"
+                : "已开启，但专业词库尚未下载：请到「词库」页下载";
         AiSummaryTextBlock.Text = !_settings.AiEnabled
             ? "AI 翻译已关闭"
             : AiConfigured
@@ -624,12 +664,14 @@ public partial class MainWindow : Window
     {
         HomeView.Visibility = Visibility.Visible;
         SettingsView.Visibility = Visibility.Collapsed;
+        LibraryView.Visibility = Visibility.Collapsed;
     }
 
     private void NavigateSettingsButton_OnClick(object sender, RoutedEventArgs e)
     {
         HomeView.Visibility = Visibility.Collapsed;
         SettingsView.Visibility = Visibility.Visible;
+        LibraryView.Visibility = Visibility.Collapsed;
     }
 
     private void UpdateMonitoring()
@@ -1342,6 +1384,272 @@ public partial class MainWindow : Window
         }
     }
 
+    // ---- 专业词库（电子信息）----
+
+    private static string DictsDirectory => Path.Combine(AppContext.BaseDirectory, "dicts");
+
+    private static ProfessionalDictionary? LoadProfessionalDictionary() =>
+        ProfessionalDictionary.TryLoad(Path.Combine(DictsDirectory, "eedict.json"), out _);
+
+    private void SetProfessionalModeEnabled(bool enabled, bool announce)
+    {
+        _settings.ProfessionalModeEnabled = enabled;
+        SetCheckboxWithoutEvent(ProfessionalCheckBox, enabled);
+        if (!enabled && _lookupWindow.IsProfessionalMode)
+        {
+            _lookupWindow.Hide();
+            _popupTrigger = PopupTrigger.None;
+        }
+
+        UpdateHomeSummary();
+        var saved = SaveSettingsOrReport();
+        var message = enabled
+            ? $"专业词库：已开启（划词/截图优先查专业词库；开关 {_settings.ProfessionalHotkey}）。"
+            : "专业词库：已关闭。";
+        SetStatus(message);
+        if (announce)
+        {
+            Announce(saved ? message : "设置保存失败，本次修改仅在当前运行内有效。");
+        }
+    }
+
+    private void ProfessionalCheckBox_OnChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_loadingSettings)
+        {
+            SetProfessionalModeEnabled(ProfessionalCheckBox.IsChecked == true, announce: false);
+        }
+    }
+
+    private void ApplyProfessionalHotkeyButton_OnClick(object sender, RoutedEventArgs e) =>
+        ApplyHotkey(_professionalHotkey, ProfessionalHotkeyTextBox.Text, chord => _settings.ProfessionalHotkey = chord, "专业词库开关快捷键");
+
+    private void ShowProfessionalPopup(ProfessionalEntry entry, PopupTrigger trigger)
+    {
+        _professionalCurrent = entry;
+        _popupTrigger = trigger;
+        _popupExpiresAtUtc = DateTime.MinValue;
+        _lookupWindow.ShowProfessional(entry);
+        UpdatePopupAutoCloseTimer();
+        SetStatus($"专业词库：{entry.Term} → {entry.Chinese}");
+        DiagnosticsLog.Write("PRO", $"hit term={entry.Term} len={entry.Term.Length}");
+    }
+
+    private async void OnProfessionalAiEnhanceRequested()
+    {
+        var entry = _professionalCurrent;
+        if (entry is null)
+        {
+            return;
+        }
+
+        if (!AiConfigured)
+        {
+            _lookupWindow.ShowAiEnhanceError("未配置 AI：请到设置 → AI 翻译 填写服务商与 API Key。");
+            _lookupWindow.CompleteAiEnhance();
+            return;
+        }
+
+        CancelLookup();
+        _lookupCancellation = new CancellationTokenSource();
+        var cancellationToken = _lookupCancellation.Token;
+        try
+        {
+            var options = new AiTranslatorOptions(_settings.AiBaseUrl, _settings.AiApiKey, _settings.AiModel);
+            var builder = new System.Text.StringBuilder();
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(20));
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var lastUiUpdateTicks = 0L;
+            await foreach (var chunk in _aiTranslator.StreamAsync(options, entry.Term, LookupDirection.EnglishToChinese, timeout.Token))
+            {
+                builder.Append(chunk);
+                if (Environment.TickCount64 - lastUiUpdateTicks >= 100)
+                {
+                    lastUiUpdateTicks = Environment.TickCount64;
+                    _lookupWindow.ShowAiEnhanceText(builder.ToString().Trim());
+                }
+            }
+
+            var text = builder.ToString().Trim();
+            if (text.Length == 0)
+            {
+                _lookupWindow.ShowAiEnhanceError("AI 未返回内容。");
+            }
+            else
+            {
+                _lookupWindow.ShowAiEnhanceText(text);
+                DiagnosticsLog.Write("PRO", $"ai enhance ok len={text.Length} in {watch.ElapsedMilliseconds} ms");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception) when (exception is HttpRequestException or IOException or System.Text.Json.JsonException or InvalidOperationException)
+        {
+            DiagnosticsLog.Write("PRO", $"ai enhance fail: {exception.GetType().Name} {exception.Message}");
+            _lookupWindow.ShowAiEnhanceError($"AI 生成失败：{exception.Message}");
+        }
+        finally
+        {
+            _lookupWindow.CompleteAiEnhance();
+        }
+    }
+
+    private static void OpenWikiLink(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
+        {
+            return;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri)
+            {
+                UseShellExecute = true
+            });
+            DiagnosticsLog.Write("PRO", "wiki link opened");
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or IOException)
+        {
+            DiagnosticsLog.Write("PRO", $"open link failed: {exception.Message}");
+        }
+    }
+
+    // ---- 词库页：下载与热加载 ----
+
+    private void NavigateLibraryButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        HomeView.Visibility = Visibility.Collapsed;
+        SettingsView.Visibility = Visibility.Collapsed;
+        LibraryView.Visibility = Visibility.Visible;
+        UpdateLibraryStatus();
+    }
+
+    private async void DownloadLexiconButton_OnClick(object sender, RoutedEventArgs e) =>
+        await DownloadDictionaryAsync(LexiconDownloadUrl, Path.Combine(DictsDirectory, "lexicon.ttlx"),
+            "中英词库", LexiconStatusText, LexiconDownloadButton, LexiconDownloadProgress, expectLexicon: true);
+
+    private async void DownloadEedictButton_OnClick(object sender, RoutedEventArgs e) =>
+        await DownloadDictionaryAsync(EedictDownloadUrl, Path.Combine(DictsDirectory, "eedict.json"),
+            "专业词库", ProfessionalStatusText, ProfessionalDownloadButton, ProfessionalDownloadProgress, expectLexicon: false);
+
+    private async Task DownloadDictionaryAsync(
+        string url,
+        string targetPath,
+        string label,
+        System.Windows.Controls.TextBlock statusText,
+        System.Windows.Controls.Button button,
+        System.Windows.Controls.ProgressBar progressBar,
+        bool expectLexicon)
+    {
+        if (_downloadInFlight)
+        {
+            return;
+        }
+
+        _downloadInFlight = true;
+        button.IsEnabled = false;
+        progressBar.Visibility = Visibility.Visible;
+        progressBar.Value = 0;
+        statusText.Text = $"状态：正在下载{label}…";
+        var temporaryPath = targetPath + ".download";
+        try
+        {
+            var directory = Path.GetDirectoryName(targetPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            long received = 0;
+            using (var response = await _downloadClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
+            {
+                response.EnsureSuccessStatusCode();
+                var total = response.Content.Headers.ContentLength ?? -1;
+                await using var source = await response.Content.ReadAsStreamAsync();
+                await using var destination = File.Create(temporaryPath);
+                var buffer = new byte[81920];
+                while (true)
+                {
+                    var read = await source.ReadAsync(buffer);
+                    if (read <= 0)
+                    {
+                        break;
+                    }
+
+                    await destination.WriteAsync(buffer.AsMemory(0, read));
+                    received += read;
+                    if (total > 0 && received * 100.0 / total - progressBar.Value >= 1)
+                    {
+                        progressBar.Value = received * 100.0 / total;
+                        statusText.Text = $"状态：正在下载{label}… {progressBar.Value:F0}%（{received / 1048576.0:F1}/{total / 1048576.0:F1} MB）";
+                    }
+                }
+            }
+
+            File.Move(temporaryPath, targetPath, overwrite: true);
+            statusText.Text = $"状态：正在校验并加载{label}…";
+            var (provider, lexiconStatus) = await Task.Run(LoadLocalProvider);
+            var professional = await Task.Run(LoadProfessionalDictionary);
+            var valid = expectLexicon ? provider is LexiconDictionaryProvider : professional is not null;
+            _localProvider = provider;
+            _dictionaryLookup = new DictionaryLookup(provider, new MyMemoryLookupProvider(_httpClient));
+            _professional = professional;
+            DiagnosticsLog.Write("LIB", $"downloaded {label} ({received} bytes) valid={valid}");
+            UpdateLibraryStatus();
+            UpdateHomeSummary();
+            SetStatus(valid
+                ? $"{label}下载完成，已立即生效。{lexiconStatus}"
+                : $"{label}下载完成，但文件校验失败，请重试或检查网络。");
+        }
+        catch (Exception exception) when (exception is HttpRequestException or IOException or TaskCanceledException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            try
+            {
+                if (File.Exists(temporaryPath))
+                {
+                    File.Delete(temporaryPath);
+                }
+            }
+            catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
+            {
+            }
+
+            DiagnosticsLog.Write("LIB", $"download failed: {exception.GetType().Name} {exception.Message}");
+            statusText.Text = $"状态：下载失败（{exception.Message}）";
+            UpdateLibraryStatus();
+            SetStatus($"{label}下载失败：{exception.Message}");
+        }
+        finally
+        {
+            button.IsEnabled = true;
+            progressBar.Visibility = Visibility.Collapsed;
+            _downloadInFlight = false;
+        }
+    }
+
+    private void UpdateLibraryStatus()
+    {
+        var lexiconPath = Path.Combine(DictsDirectory, "lexicon.ttlx");
+        LexiconStatusText.Text = _localProvider is LexiconDictionaryProvider lexiconProvider
+            ? $"状态：已加载 {lexiconProvider.WordCount:N0} 个词条"
+            : File.Exists(lexiconPath)
+                ? "状态：文件已下载，重新下载以加载"
+                : "状态：未下载（本地查词暂时使用演示词条）";
+        LexiconDownloadButton.Content = File.Exists(lexiconPath) ? "重新下载 / 更新" : "下载中英词库（约 34MB）";
+
+        var professionalPath = Path.Combine(DictsDirectory, "eedict.json");
+        ProfessionalStatusText.Text = _professional is not null
+            ? $"状态：已加载 {_professional.Count} 个专业词条"
+            : File.Exists(professionalPath)
+                ? "状态：文件已下载，重新下载以加载"
+                : "状态：未下载（专业模式无法使用）";
+        ProfessionalDownloadButton.Content = File.Exists(professionalPath) ? "重新下载 / 更新" : "下载专业词库（约 200KB）";
+    }
+
     private void OnMousePointerPressed()
     {
         _typingBuffer.Clear();
@@ -1471,6 +1779,15 @@ public partial class MainWindow : Window
         var direction = OcrTextCleaner.LooksChinese(text)
             ? LookupDirection.ChineseToEnglish
             : LookupDirection.EnglishToChinese;
+        // 专业词库优先（与划词同一策略）。
+        if (_settings.ProfessionalModeEnabled && _professional is not null &&
+            _professional.TryFind(text, out var professionalEntry))
+        {
+            ShowProfessionalPopup(professionalEntry, PopupTrigger.Screenshot);
+            SetTrayStatus($"专业词库：「{Shorten(text, 14)}」→ {professionalEntry.Chinese}");
+            return;
+        }
+
         try
         {
             var response = await _dictionaryLookup.FindSelectionAsync(text, direction, allowOnline: false, cancellationToken);
@@ -2208,6 +2525,15 @@ public partial class MainWindow : Window
                 ? LookupDirection.ChineseToEnglish
                 : LookupDirection.EnglishToChinese;
             var popupTrigger = triggeredByHotkey ? PopupTrigger.SelectionHotkey : PopupTrigger.SelectionAuto;
+            // 专业词库优先：命中专业词条时直接显示中英对照/解释/百科链接面板。
+            if (_settings.ProfessionalModeEnabled && _professional is not null &&
+                _professional.TryFind(text, out var professionalEntry))
+            {
+                ShowProfessionalPopup(professionalEntry, popupTrigger);
+                SetTrayStatus($"专业词库：「{Shorten(text, 16)}」→ {professionalEntry.Chinese}");
+                return;
+            }
+
             var lookupStopwatch = System.Diagnostics.Stopwatch.StartNew();
             var response = await _dictionaryLookup.FindSelectionAsync(text, direction, allowOnline: false, cancellationToken);
             lookupStopwatch.Stop();
@@ -2579,6 +2905,12 @@ public partial class MainWindow : Window
                 StartScreenshotCapture();
                 handled = true;
             }
+            else if (hotkeyId == ProfessionalHotkeyId)
+            {
+                SetProfessionalModeEnabled(!_settings.ProfessionalModeEnabled, announce: true);
+                DiagnosticsLog.Write("HOTKEY", $"professional toggle -> {_settings.ProfessionalModeEnabled}");
+                handled = true;
+            }
         }
 
         return IntPtr.Zero;
@@ -2717,6 +3049,7 @@ public partial class MainWindow : Window
         _lookupWindow.Close();
         _httpClient.Dispose();
         _aiHttpClient.Dispose();
+        _downloadClient.Dispose();
         base.OnClosed(e);
         Application.Current.Shutdown();
     }

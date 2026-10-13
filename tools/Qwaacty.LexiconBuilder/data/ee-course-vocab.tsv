@@ -1,0 +1,119 @@
+# 来源：安徽大学电子信息工程学院《专业英语-词汇复习-2026》
+# https://github.com/caomax361-ops/professional-english-vocab-2026
+# 列：english <TAB> chinese <TAB> type(word/abbr) <TAB> full(abbr 展开，可空)
+Miniaturization	小型化	word	
+Solid state	固态	word	
+Transistor	晶体管	word	
+Silicon	硅	word	
+Semiconductor	半导体	word	
+Vacuum Tube	真空管	word	
+Microprocessor	微处理器	word	
+Integrated circuit	集成电路	word	
+Negative feedback	负反馈	word	
+Open loop gain	开环增益	word	
+Transfer function	传输函数	word	
+Active/Passive components	有源/无源器件	word	
+Oscillation	振荡	word	
+Interface	接口；界面	word	
+Input offset voltage	输入偏置电压	word	
+Datasheet	数据手册；数据表	word	
+Specification	性能指标	word	
+Interconnect	互联	word	
+Signal integrity	信号完整性	word	
+Ribbon cable	带状电缆	word	
+Clock rates	时钟速率	word	
+Power loss	功率损耗	word	
+Cross talk	串扰	word	
+Power capacity	功率容量	word	
+Car-based telephone	车载电话	word	
+Signal degradation	信号衰减	word	
+Frequency response	频率响应	word	
+Capacitive coupling/ Inductive coupling	电容、电感耦合	word	
+Termination characteristics	端接特性	word	
+Base station	基站	word	
+Analog/ Digital voice	模拟/ 数字语音	word	
+Cordless phone	无绳电话	word	
+Frequency reuse	频率复用（再用）	word	
+Backward compatibility	向下兼容	word	
+Packet switching	分组交换	word	
+Interference	干扰	word	
+Interwork	相互作用	word	
+Time slot	时（间）隙	word	
+Frequency conflict	频率冲突	word	
+Random noise	随机噪声	word	
+Predictive encoding	预测编码	word	
+Frequency/Time division multiplexing	频/时分复用	word	
+Upstream/ downstream channel	上行通道、下行通道	word	
+Spread spectrum communication	扩频通信	word	
+Mother/Daughter board	主板，母板/子板	word	
+Operating system	操作系统	word	
+Hard disk	硬盘	word	
+Flash Memory	闪存	word	
+Graphics card	显卡	word	
+Caching	缓存	word	
+User interface	用户接口	word	
+Embedded system	嵌入式系统	word	
+Full custom/ Semi custom	全定制、半定制	word	
+Sequential circuit	时序电路	word	
+synchronize/asynchronize、synchronous/asynchronous	同步、异步（动名词、形容词都可）	word	
+Test bench	测试平台	word	
+Assembly language	汇编语言	word	
+Abstract data type	抽象数据类型	word	
+Learning curve	学习曲线	word	
+Gate-level	门电路级	word	
+Aliasing	混叠现象	word	
+Spectral inversion	频谱反转	word	
+Power dissipation/ Power consumption	功率耗散；功耗	word	
+Acquisition time	采集时间	word	
+Quantization level	量化电平	word	
+Dynamic range	动态范围	word	
+Undersampling	欠采样	word	
+Signal-to-noise ratio	信噪比	word	
+Sampling period/frequency/interval	采样周期、采样频率、采样间隔	word	
+Bus interface	总线接口	word	
+Multiplier	乘法器	word	
+Accumulator	累加器	word	
+Shifter	移位器	word	
+Floating point	浮点	word	
+Fixed point	定点	word	
+Scientific notation	科学计数	word	
+Multimedia	多媒体	word	
+VLSI	超大规模集成(电路)	abbr	Very Large-scale Integration
+IC	集成电路	abbr	Integrated Circuit
+GBW	增益带宽积	abbr	Gain bandwidth
+Op amp	运算放大器	abbr	Operational amplifier
+VSWR	电压驻波比	abbr	Voltage Standing Wave Ratio
+PCB	印制电路板	abbr	Printed circuit board
+TTL	晶体管-晶体管逻辑电路	abbr	Transistor-Transistor Logic
+CMOS	互补金属氧化物半导体	abbr	Complementary Metal-Oxide-Semiconductor
+GSM	全球移动通信系统	abbr	Global System for Mobile Communications
+AMPS	高级移动电话系统	abbr	Advanced Mobile Phone System
+PSTN	公共交换电话网	abbr	Public Switched telephone network
+D-AMPS	数字高级移动电话系统	abbr	Digital Advanced Mobile Phone System
+TDM	时分复用	abbr	Time division multiplexing
+FDM	频分复用	abbr	Frequency division multiplexing
+CDMA	码分多址	abbr	Code division multiple access
+PCM	脉冲编码调制	abbr	Pulse code modulation
+POST	开机自检	abbr	Power-On Self -Test
+PC	个人计算机	abbr	Personal Computer
+CPU	中央处理器	abbr	Central processing unit
+USB	通用串行总线	abbr	Universal Serial Bus
+IDE	集成驱动电子设备/ integrated development environment集成开发环境	abbr	integrated drive electronics
+PCI	外围器件互联	abbr	Peripheral Component Interconnect
+OS	操作系统	abbr	Operating system
+RAM	随机存储器	abbr	Random-access memory
+ROM	只读存储器	abbr	Read-only memory (ROM)
+LAN	局域网	abbr	Local area network
+PLD	可编程逻辑器件	abbr	Programmable Logic Device
+ASIC	专用集成电路	abbr	Application specific integrated circuit
+EDA	电子设计自动化	abbr	Electronic design automation
+CAD	计算机辅助设计	abbr	Computer-aided design
+HDL	硬件描述语言	abbr	Hardware description language
+FPGA	现场可编程逻辑门阵列	abbr	Field programmable gate array
+A/D conversion	模数转换	abbr	Analog-to-digital conversion
+D/A conversion	数模转换	abbr	Digital-to- Analog conversion
+SNR	信噪比	abbr	Signal-to-noise ratio
+DSP	数字信号处理	abbr	Digital signal processing/processor
+AP	接入点	abbr	Access point
+WLAN	无线局域网	abbr	Wireless local area network
+IP	互联网协议	abbr	Internet Protocol

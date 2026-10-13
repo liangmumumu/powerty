@@ -486,6 +486,17 @@ RunSync("Morphology recovers irregular forms and chat abbreviations", () =>
     Assert(EnglishMorphology.Candidates("xyzzy").Count == 0, "Unknown words should yield no candidates.");
 });
 
+RunSync("Professional dictionary parses and answers both directions", () =>
+{
+    const string payload = """{"version":1,"entries":[{"en":"impedance","zh":"阻抗","abbr":false,"explain":"The opposition to alternating current.","link":"https://baike.baidu.com/item/impedance"},{"en":"VLSI","zh":"超大规模集成电路","abbr":true,"explain":null,"link":"https://baike.baidu.com/item/VLSI"},{"en":"transistor","zh":"晶体管","abbr":false,"explain":"A semiconductor device.","link":"https://baike.baidu.com/item/transistor"}]}""";
+    var dictionary = ProfessionalDictionary.Load(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(payload)));
+    Assert(dictionary.Count == 3, $"Expected three entries, got {dictionary.Count}.");
+    Assert(dictionary.TryFind("impedance", out var impedance) && impedance.Chinese == "阻抗", "English term lookup failed.");
+    Assert(dictionary.TryFind("transistors", out var transistor) && transistor.Term == "transistor", "Plural morphology lookup failed.");
+    Assert(dictionary.TryFind("超大规模集成电路", out var vlsi) && vlsi.IsAbbreviation, "Chinese lookup failed.");
+    Assert(!dictionary.TryFind("not-a-term", out _), "Unknown terms must miss.");
+});
+
 RunSync("Chinese suffix ladder derives shorter queries", () =>
 {
     var suffixes = ChineseQueryLadder.Suffixes("上午开会");
