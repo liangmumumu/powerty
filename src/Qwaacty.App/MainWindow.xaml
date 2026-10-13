@@ -67,6 +67,17 @@
                                            Foreground="{StaticResource VsDimTextBrush}" />
                             </StackPanel>
                         </Border>
+                        <Border Margin="0,0,0,10" Padding="18" Background="{StaticResource VsPanelBrush}"
+                                BorderBrush="{StaticResource VsPanelBorderBrush}" BorderThickness="1" CornerRadius="4">
+                            <StackPanel>
+                                <CheckBox x:Name="InputTranslateCheckBox" FontSize="15" FontWeight="SemiBold"
+                                          Style="{StaticResource VsCheckBox}" Content="输入转译（打字后按快捷键写入译文）"
+                                          Checked="InputTranslateCheckBox_OnChanged"
+                                          Unchecked="InputTranslateCheckBox_OnChanged" />
+                                <TextBlock x:Name="InputTranslateHint" Margin="24,8,0,0" FontSize="12"
+                                           Foreground="{StaticResource VsDimTextBrush}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
                         <Border Margin="0,8,0,0" Padding="18" Background="{StaticResource VsPanelBrush}"
                                 BorderBrush="{StaticResource VsPanelBorderBrush}" BorderThickness="1" CornerRadius="4">
                             <StackPanel>
@@ -128,9 +139,17 @@
                                     Content="应用" Click="ApplyScreenshotHotkeyButton_OnClick" />
                             <TextBox x:Name="ScreenshotHotkeyTextBox" Style="{StaticResource VsTextBox}" />
                         </DockPanel>
+                        <DockPanel Margin="0,8,0,0">
+                            <TextBlock DockPanel.Dock="Left" Width="150" VerticalAlignment="Center"
+                                       Foreground="{StaticResource VsTextBrush}" Text="输入转译（写入译文）" />
+                            <Button DockPanel.Dock="Right" Width="96" Margin="10,0,0,0"
+                                    Style="{StaticResource VsButton}"
+                                    Content="应用" Click="ApplyInputTranslateHotkeyButton_OnClick" />
+                            <TextBox x:Name="InputTranslateHotkeyTextBox" Style="{StaticResource VsTextBox}" />
+                        </DockPanel>
                         <TextBlock Margin="0,12,0,0" FontSize="12" Foreground="{StaticResource VsDimTextBrush}"
                                    TextWrapping="Wrap"
-                                   Text="可使用 Ctrl、Alt、Shift、Win 与一个按键组合。默认组合：键入开关 Ctrl+Alt+Shift+T、手动划词触发 Ctrl+Alt+Shift+D、手动划词开关 Ctrl+Alt+Shift+S、自动划词开关 Ctrl+Alt+Shift+A、截图翻译 Ctrl+Alt+Shift+X。" />
+                                   Text="可使用 Ctrl、Alt、Shift、Win 与一个按键组合。默认组合：键入开关 Ctrl+Alt+Shift+T、手动划词触发 Ctrl+Alt+Shift+D、手动划词开关 Ctrl+Alt+Shift+S、自动划词开关 Ctrl+Alt+Shift+A、截图翻译 Ctrl+Alt+Shift+X、输入转译 Ctrl+Alt+Z。" />
                         <CheckBox x:Name="OnlineCheckBox" Margin="0,12,0,0"
                                   Style="{StaticResource VsCheckBox}"
                                   Content="本地未命中时，允许在线补查（仅发送当前单词/短语或选中的文本）"

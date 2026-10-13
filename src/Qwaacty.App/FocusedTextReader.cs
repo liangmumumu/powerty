@@ -16,9 +16,26 @@ internal sealed record FocusedTextReadResult(
 
 internal sealed record SelectionContextReadResult(bool Ok, string? Context, string? Message);
 
+/// <summary>What the input-translation module reads: the tail before the caret plus the
+/// total length (for round segmenting), or the manual selection when there is one.</summary>
+internal sealed record TypingSegmentReadResult(
+    bool Ok,
+    bool PasswordBlocked,
+    bool IsSelection,
+    int LengthBeforeCaret,
+    bool LengthCapped,
+    string Tail,
+    string? SelectedText,
+    char? PrecedingChar,
+    Rect? InputBounds,
+    IntPtr ForegroundWindow,
+    string? Message);
+
 internal static class FocusedTextReader
 {
     private const int ContextWindowCharacters = 48;
+    private const int TypingSegmentReadCharacters = 2000;
+    private const int TypingSegmentLengthProbe = 20000;
 
     public static FocusedTextReadResult Read()
     {
@@ -306,4 +323,155 @@ internal static class FocusedTextReader
     }
 
     private static SelectionContextReadResult SelectionContextUnavailable(string message) => new(false, null, message);
+
+    /// <summary>Reads what the input-translation module needs: the text before the caret
+    /// (tail plus total length) or, when text is selected, the selection itself.</summary>
+    public static TypingSegmentReadResult ReadTypingSegment()
+    {
+        try
+        {
+            var focused = AutomationElement.FocusedElement;
+            if (focused is null)
+            {
+                return TypingSegmentFailure("无法确认当前输入位置。");
+            }
+
+            if (focused.Current.ProcessId == Environment.ProcessId)
+            {
+                return TypingSegmentFailure("当前焦点在本程序窗口。");
+            }
+
+            var passwordValue = focused.GetCurrentPropertyValue(AutomationElement.IsPasswordProperty, ignoreDefaultValue: true);
+            if (passwordValue is bool isPassword && isPassword)
+            {
+                return new TypingSegmentReadResult(false, true, false, 0, false, string.Empty, null, null, null,
+                    GetForegroundWindow(), "当前为密码输入区域，已跳过。");
+            }
+
+            if (passwordValue is not bool)
+            {
+                return TypingSegmentFailure("当前输入区域无法安全读取。");
+            }
+
+            if (focused.TryGetCurrentPattern(TextPattern.Pattern, out var patternObject) &&
+                patternObject is TextPattern textPattern)
+            {
+                return ReadTypingSegmentViaTextPattern(textPattern, focused);
+            }
+
+            return ReadTypingSegmentViaValuePattern(focused);
+        }
+        catch (ElementNotAvailableException)
+        {
+            return TypingSegmentFailure("输入控件已变化。");
+        }
+        catch (InvalidOperationException)
+        {
+            return TypingSegmentFailure("当前应用无法安全读取输入文字。");
+        }
+        catch (COMException)
+        {
+            return TypingSegmentFailure("无法安全读取当前输入文字。");
+        }
+        catch (ArgumentException)
+        {
+            return TypingSegmentFailure("当前文本控件返回了无效范围。");
+        }
+        catch (NotSupportedException)
+        {
+            return TypingSegmentFailure("当前文本控件不支持安全读取。");
+        }
+    }
+
+    private static TypingSegmentReadResult ReadTypingSegmentViaTextPattern(TextPattern textPattern, AutomationElement focused)
+    {
+        var selections = textPattern.GetSelection();
+        if (selections.Length != 1)
+        {
+            return TypingSegmentFailure("输入位置无法确认。");
+        }
+
+        var selection = selections[0];
+        var inputBounds = focused.Current.BoundingRectangle;
+        var bounds = inputBounds.IsEmpty ? (Rect?)null : inputBounds;
+        var foreground = GetForegroundWindow();
+
+        if (selection.CompareEndpoints(
+                TextPatternRangeEndpoint.Start,
+                selection,
+                TextPatternRangeEndpoint.End) != 0)
+        {
+            // A manual selection IS the round: the injection types over it, so no
+            // backspaces are needed and the exact content is already known.
+            var selected = selection.GetText(TypingSegmentReadCharacters)?.Trim() ?? string.Empty;
+            if (selected.Length == 0)
+            {
+                return TypingSegmentFailure("选中内容为空。");
+            }
+
+            return new TypingSegmentReadResult(true, false, true, 0, false, string.Empty, selected,
+                ReadPrecedingCharacter(textPattern, selection), bounds, foreground, null);
+        }
+
+        // Tail: the last characters before the caret.
+        var tailRange = textPattern.DocumentRange.Clone();
+        tailRange.MoveEndpointByRange(TextPatternRangeEndpoint.End, selection, TextPatternRangeEndpoint.Start);
+        tailRange.MoveEndpointByUnit(TextPatternRangeEndpoint.Start, TextUnit.Character, -TypingSegmentReadCharacters);
+        var tail = tailRange.GetText(TypingSegmentReadCharacters) ?? string.Empty;
+
+        // Length before the caret (capped; the caller falls back to a sentence scan
+        // for very large documents where the probe hits the cap).
+        var prefixRange = textPattern.DocumentRange.Clone();
+        prefixRange.MoveEndpointByRange(TextPatternRangeEndpoint.End, selection, TextPatternRangeEndpoint.Start);
+        var prefix = prefixRange.GetText(TypingSegmentLengthProbe) ?? string.Empty;
+
+        return new TypingSegmentReadResult(true, false, false, prefix.Length,
+            prefix.Length >= TypingSegmentLengthProbe, tail, null, null, bounds, foreground, null);
+    }
+
+    private static TypingSegmentReadResult ReadTypingSegmentViaValuePattern(AutomationElement focused)
+    {
+        if (!focused.TryGetCurrentPattern(ValuePattern.Pattern, out var valueObject) ||
+            valueObject is not ValuePattern valuePattern)
+        {
+            return TypingSegmentFailure("当前应用未提供可读取的输入文字。");
+        }
+
+        var value = valuePattern.Current.Value;
+        if (value is null)
+        {
+            return TypingSegmentFailure("当前应用未提供可读取的输入文字。");
+        }
+
+        var tail = value.Length > TypingSegmentReadCharacters ? value[^TypingSegmentReadCharacters..] : value;
+        var bounds = focused.Current.BoundingRectangle;
+        return new TypingSegmentReadResult(true, false, false, value.Length, false, tail, null, null,
+            bounds.IsEmpty ? null : bounds, GetForegroundWindow(), null);
+    }
+
+    private static char? ReadPrecedingCharacter(TextPattern textPattern, TextPatternRange selection)
+    {
+        try
+        {
+            var range = textPattern.DocumentRange.Clone();
+            range.MoveEndpointByRange(TextPatternRangeEndpoint.Start, selection, TextPatternRangeEndpoint.Start);
+            if (range.MoveEndpointByUnit(TextPatternRangeEndpoint.Start, TextUnit.Character, -1) == 0)
+            {
+                return null;
+            }
+
+            var text = range.GetText(1);
+            return text.Length > 0 ? text[0] : null;
+        }
+        catch (Exception exception) when (exception is COMException or InvalidOperationException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private static TypingSegmentReadResult TypingSegmentFailure(string message) =>
+        new(false, false, false, 0, false, string.Empty, null, null, null, GetForegroundWindow(), message);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
 }

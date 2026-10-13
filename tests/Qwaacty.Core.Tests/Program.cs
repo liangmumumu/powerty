@@ -486,6 +486,25 @@ RunSync("Morphology recovers irregular forms and chat abbreviations", () =>
     Assert(EnglishMorphology.Candidates("xyzzy").Count == 0, "Unknown words should yield no candidates.");
 });
 
+RunSync("Segment transcription picks direction and capitalizes sentence starts", () =>
+{
+    Assert(SegmentTranscription.DetectDirection("今天天气不错") == LookupDirection.ChineseToEnglish, "Chinese input must map to zh->en.");
+    Assert(SegmentTranscription.DetectDirection("Hello there") == LookupDirection.EnglishToChinese, "English input must map to en->zh.");
+    Assert(SegmentTranscription.DetectDirection("用 Git 提交代码") == LookupDirection.ChineseToEnglish, "Mixed CJK/Latin counts as Chinese.");
+    Assert(SegmentTranscription.ApplySentenceStartCapitalization("the weather is nice", true) == "The weather is nice", "Sentence start must capitalize the first letter.");
+    Assert(SegmentTranscription.ApplySentenceStartCapitalization("the weather is nice", false) == "the weather is nice", "Mid-sentence stays lowercase.");
+    Assert(SegmentTranscription.ApplySentenceStartCapitalization("“hello”, she said", true) == "“Hello”, she said", "Quotes are skipped when capitalizing.");
+    Assert(SegmentTranscription.IsSentenceBoundary('。') && SegmentTranscription.IsSentenceBoundary('?') && !SegmentTranscription.IsSentenceBoundary('，'), "Sentence boundary detection.");
+});
+
+RunSync("Typing round segmentation follows the anchor", () =>
+{
+    Assert(SegmentTranscription.ComputeRoundSegment("前面的话第二句", 7, false, 5) == "二句", "Round segment must be the text typed since the anchor.");
+    Assert(SegmentTranscription.ComputeRoundSegment("Hello world", 11, false, 11) == string.Empty, "No typing since the anchor means an empty round.");
+    Assert(SegmentTranscription.ComputeRoundSegment("Hello world", 11, true, 3) is null, "Capped length must fall back to the sentence scan.");
+    Assert(SegmentTranscription.SentenceSegment("第一句。第二句") == "第二句", "Sentence fallback takes the text after the last terminator.");
+});
+
 RunSync("Chinese suffix ladder derives shorter queries", () =>
 {
     var suffixes = ChineseQueryLadder.Suffixes("上午开会");
