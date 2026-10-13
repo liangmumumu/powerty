@@ -1,6 +1,6 @@
 #define AppName "Powerty"
 #define AppVersion "0.11.2"
-#define AppPublisher "Typing Translator"
+#define AppPublisher "Powerty"
 #define AppExeName "Powerty.App.exe"
 
 [Setup]

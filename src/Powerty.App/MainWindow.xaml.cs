@@ -1177,8 +1177,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Privacy guard: terminal keystrokes can be passwords (sudo / ssh prompts) and
+        // UIA cannot flag those fields, so terminal input must never reach AI or the
+        // online fallback. The local dictionary still answers normally.
+        var terminalForeground = SelectionReader.IsConsoleWindow(GetForegroundWindow());
+
         var aiAttempted = false;
-        if (AiConfigured && !cancellationToken.IsCancellationRequested)
+        if (!terminalForeground && AiConfigured && !cancellationToken.IsCancellationRequested)
         {
             aiAttempted = true;
             SetStatus("本地未收录，正在用 AI 翻译…");
@@ -1197,7 +1202,7 @@ public partial class MainWindow : Window
         var compatAvailable = _settings.CompatibilityMode && _typingBuffer.Length > 0;
         var onlineAttempted = false;
         string? error = null;
-        if (_settings.AllowOnlineLookup && DateTime.UtcNow >= _onlineBackoffUntilUtc)
+        if (!terminalForeground && _settings.AllowOnlineLookup && DateTime.UtcNow >= _onlineBackoffUntilUtc)
         {
             onlineAttempted = true;
             var responses = await Task.WhenAll(candidates.Select(candidate =>
@@ -1229,16 +1234,18 @@ public partial class MainWindow : Window
                 return;
             }
         }
-        else if (_settings.AllowOnlineLookup)
+        else if (!terminalForeground && _settings.AllowOnlineLookup)
         {
             error = "在线翻译暂不可用（近期失败过，稍后自动重试）。";
         }
 
-        var message = error ?? (aiAttempted
-            ? "AI 翻译未成功；本地词库未收录该词条。"
-            : _settings.AllowOnlineLookup
-                ? "本地词库未收录该词条。"
-                : "本地词库未收录该词条（在线兜底已关闭）。");
+        var message = error ?? (terminalForeground
+            ? "终端窗口中仅使用本地词库（不向网络发送终端输入）。"
+            : aiAttempted
+                ? "AI 翻译未成功；本地词库未收录该词条。"
+                : _settings.AllowOnlineLookup
+                    ? "本地词库未收录该词条。"
+                    : "本地词库未收录该词条（在线兜底已关闭）。");
         DiagnosticsLog.Write("TYPE",
             $"miss len={primary.Text.Length} dir={primary.Direction} ai={aiAttempted} online={onlineAttempted} backoff={DateTime.UtcNow < _onlineBackoffUntilUtc} error={error ?? "none"}");
         ShowTypingMiss(primary, message);

@@ -56,8 +56,12 @@ internal static class SettingsStore
 
         var json = File.ReadAllText(SettingsPath);
         var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+        // A pre-DPAPI build stored the key as plain text; rewrite right away so the
+        // file stops containing a readable secret even before the next settings change.
+        var plaintextKeyNeedsMigration =
+            settings.AiApiKey.Length > 0 && !settings.AiApiKey.StartsWith(Dpapi.Prefix, StringComparison.Ordinal);
         settings.AiApiKey = Dpapi.Unprotect(settings.AiApiKey);
-        var needsRewrite = false;
+        var needsRewrite = plaintextKeyNeedsMigration;
 
         // v1 stored the selection auto-trigger default as true; the feature now defaults to hotkey-only.
         if (settings.SettingsVersion < 2)
@@ -225,6 +229,18 @@ internal static class SettingsStore
         else
         {
             File.Move(temporaryPath, SettingsPath);
+        }
+
+        // File.Replace turns the previous settings file into .bak; on machines
+        // upgrading from a pre-DPAPI build that file can still hold the key in plain
+        // text. Overwrite .bak with the just-written (encrypted) content so no readable
+        // secret survives on disk. Best effort: the main file is authoritative anyway.
+        try
+        {
+            File.WriteAllText(SettingsPath + ".bak", json);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
         }
     }
 }

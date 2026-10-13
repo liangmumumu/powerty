@@ -421,7 +421,7 @@ internal static class SelectionReader
     [DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
-    private static bool IsConsoleWindow(IntPtr handle)
+    internal static bool IsConsoleWindow(IntPtr handle)
     {
         if (handle == IntPtr.Zero)
         {
@@ -437,6 +437,7 @@ internal static class SelectionReader
 
         var className = buffer.ToString(0, length);
         return className is "ConsoleWindowClass" or "CASCADIA_HOSTING_WINDOW_CLASS" or "mintty"
+            or "VirtualConsole" or "Alacritty"
             || className.StartsWith("PuTTY", StringComparison.Ordinal);
     }
 
