@@ -1,4 +1,4 @@
-# Powerty
+# Qwaacty
 
 Windows 桌面中英实时翻译 / 查词工具：**键入、划词、截图** 三路取词，本地词库优先，AI 辅助翻译与语境增强。C# / .NET 8 + WPF，VS Code 深色风格界面，常驻系统托盘。
 
@@ -17,8 +17,8 @@ Windows 桌面中英实时翻译 / 查词工具：**键入、划词、截图** �
 
 | 形式 | 说明 |
 | --- | --- |
-| `Powerty-Setup.exe` | 安装包：当前用户安装，可选开机自启 |
-| `Powerty-Green-x64.zip` | 绿色版：自包含单文件，解压即用，无需安装 .NET |
+| `Qwaacty-Setup.exe` | 安装包：当前用户安装，可选开机自启 |
+| `Qwaacty-Green-x64.zip` | 绿色版：自包含单文件，解压即用，无需安装 .NET |
 | `artifacts\publish\` | 免安装运行版：需要 .NET 8 桌面运行时 |
 
 默认快捷键（均在设置页可改）：
@@ -30,7 +30,7 @@ Windows 桌面中英实时翻译 / 查词工具：**键入、划词、截图** �
 | 快捷键划词翻译 触发 / 开关 | `Ctrl+Alt+Shift+D` / `Ctrl+Alt+Shift+S` |
 | 截图翻译 | `Ctrl+Alt+Shift+X` |
 
-设置与诊断日志位于 `%LOCALAPPDATA%\Powerty\`（绿色版为程序目录）。关闭主窗口后程序驻留托盘，右键托盘图标可退出。
+设置与诊断日志位于 `%LOCALAPPDATA%\Qwaacty\`（绿色版为程序目录）。关闭主窗口后程序驻留托盘，右键托盘图标可退出。
 
 备注：
 - 微信 / QQ 等无法读取文本的应用，请开启「兼容模式」（缓冲最近键入字符，仅内存）
@@ -51,10 +51,10 @@ Windows 桌面中英实时翻译 / 查词工具：**键入、划词、截图** �
 运行测试：
 
 ```powershell
-dotnet run --project .\tests\Powerty.Core.Tests\Powerty.Core.Tests.csproj -c Release
+dotnet run --project .\tests\Qwaacty.Core.Tests\Qwaacty.Core.Tests.csproj -c Release
 ```
 
-生成安装包：安装 [Inno Setup 6](https://jrsoftware.org/isinfo.php) 后，`build.ps1` 会自动编译 `installer\Powerty.iss`（或手动用 ISCC 编译）。
+生成安装包：安装 [Inno Setup 6](https://jrsoftware.org/isinfo.php) 后，`build.ps1` 会自动编译 `installer\Qwaacty.iss`（或手动用 ISCC 编译）。
 
 ## 离线词库（可选）
 
@@ -62,7 +62,7 @@ dotnet run --project .\tests\Powerty.Core.Tests\Powerty.Core.Tests.csproj -c Rel
 
 - [qwerty-learner](https://github.com/Kaiyiwing/qwerty-learner)（GPL-3.0）——英语词库
 - [ECDICT](https://github.com/skywind3000/ECDICT)（MIT）——词典数据
-- `tools\Powerty.LexiconBuilder\curated.tsv`——少量人工校对的高频对话词补充
+- `tools\Qwaacty.LexiconBuilder\curated.tsv`——少量人工校对的高频对话词补充
 
 将数据源放到本机任意位置，通过参数指定即可：
 
@@ -76,8 +76,8 @@ dotnet run --project .\tests\Powerty.Core.Tests\Powerty.Core.Tests.csproj -c Rel
 
 | 目录 | 内容 |
 | --- | --- |
-| `src\Powerty.App` | WPF 应用：界面、全局热键、键入 / 划词 / 截图模块 |
-| `src\Powerty.Core` | 核心库：词库查询、AI 翻译、文本解析、OCR 清理 |
-| `tests\Powerty.Core.Tests` | 核心行为检查（约 40 项） |
+| `src\Qwaacty.App` | WPF 应用：界面、全局热键、键入 / 划词 / 截图模块 |
+| `src\Qwaacty.Core` | 核心库：词库查询、AI 翻译、文本解析、OCR 清理 |
+| `tests\Qwaacty.Core.Tests` | 核心行为检查（约 40 项） |
 | `tools\` | 词库构建器、界面预览工具 |
 | `installer\` | Inno Setup 安装脚本 |

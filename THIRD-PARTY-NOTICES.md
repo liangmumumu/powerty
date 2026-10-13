@@ -16,7 +16,7 @@
 
 ## curated.tsv
 
-- 来源：本仓库 `tools/Powerty.LexiconBuilder/curated.tsv`
+- 来源：本仓库 `tools/Qwaacty.LexiconBuilder/curated.tsv`
 - 内容：少量人工校对的高频词汇补充
 
 由上述数据合并生成的 `dicts\lexicon.ttlx` 属于衍生数据；对外分发该产物时请同时遵守 qwerty-learner（GPL-3.0）与 ECDICT（MIT）的许可要求。

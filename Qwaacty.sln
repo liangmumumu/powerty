@@ -1,0 +1,41 @@
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qwaacty.Core", "src\Qwaacty.Core\Qwaacty.Core.csproj", "{D3264628-8182-43BC-A654-754DC8A5B379}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qwaacty.App", "src\Qwaacty.App\Qwaacty.App.csproj", "{ED54108A-E24F-4F28-9865-C2083B740D3B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qwaacty.Core.Tests", "tests\Qwaacty.Core.Tests\Qwaacty.Core.Tests.csproj", "{0C617B4E-B11E-478E-A12F-A87BF7E9C14C}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{19F76610-4B09-443E-9B2B-3D0131FDCB2E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qwaacty.LexiconBuilder", "tools\Qwaacty.LexiconBuilder\Qwaacty.LexiconBuilder.csproj", "{4AFA2B3B-3294-4B10-B421-188EAA07FF48}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D3264628-8182-43BC-A654-754DC8A5B379}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D3264628-8182-43BC-A654-754DC8A5B379}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D3264628-8182-43BC-A654-754DC8A5B379}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D3264628-8182-43BC-A654-754DC8A5B379}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ED54108A-E24F-4F28-9865-C2083B740D3B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ED54108A-E24F-4F28-9865-C2083B740D3B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ED54108A-E24F-4F28-9865-C2083B740D3B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ED54108A-E24F-4F28-9865-C2083B740D3B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0C617B4E-B11E-478E-A12F-A87BF7E9C14C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0C617B4E-B11E-478E-A12F-A87BF7E9C14C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0C617B4E-B11E-478E-A12F-A87BF7E9C14C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0C617B4E-B11E-478E-A12F-A87BF7E9C14C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4AFA2B3B-3294-4B10-B421-188EAA07FF48}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4AFA2B3B-3294-4B10-B421-188EAA07FF48}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4AFA2B3B-3294-4B10-B421-188EAA07FF48}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4AFA2B3B-3294-4B10-B421-188EAA07FF48}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{4AFA2B3B-3294-4B10-B421-188EAA07FF48} = {19F76610-4B09-443E-9B2B-3D0131FDCB2E}
+	EndGlobalSection
+EndGlobal

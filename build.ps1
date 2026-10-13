@@ -15,8 +15,8 @@ $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = "1"
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
 $publishPath = Join-Path $root "artifacts\publish"
 $installerPath = Join-Path $root "artifacts\installer"
-$testProject = Join-Path $root "tests\Powerty.Core.Tests\Powerty.Core.Tests.csproj"
-$lexiconProject = Join-Path $root "tools\Powerty.LexiconBuilder\Powerty.LexiconBuilder.csproj"
+$testProject = Join-Path $root "tests\Qwaacty.Core.Tests\Qwaacty.Core.Tests.csproj"
+$lexiconProject = Join-Path $root "tools\Qwaacty.LexiconBuilder\Qwaacty.LexiconBuilder.csproj"
 
 if (-not $LexiconSource) {
     $defaultLexiconSource = Join-Path (Split-Path -Parent $root) "qwerty_typing_translating\qwerty-learner-master"
@@ -32,7 +32,7 @@ if (-not $EcdictSource) {
     }
 }
 
-$curatedPath = Join-Path $root "tools\Powerty.LexiconBuilder\curated.tsv"
+$curatedPath = Join-Path $root "tools\Qwaacty.LexiconBuilder\curated.tsv"
 
 & $dotnet run --project $testProject --configuration Release
 if ($LASTEXITCODE -ne 0) {
@@ -49,7 +49,7 @@ if (Test-Path -LiteralPath $publishPath) {
 New-Item -ItemType Directory -Force -Path $publishPath | Out-Null
 
 if ($SelfContained) {
-    & $dotnet publish (Join-Path $root "src\Powerty.App\Powerty.App.csproj") `
+    & $dotnet publish (Join-Path $root "src\Qwaacty.App\Qwaacty.App.csproj") `
         --configuration Release `
         --runtime win-x64 `
         --self-contained true `
@@ -61,7 +61,7 @@ if ($SelfContained) {
     }
 }
 else {
-    & $dotnet publish (Join-Path $root "src\Powerty.App\Powerty.App.csproj") `
+    & $dotnet publish (Join-Path $root "src\Qwaacty.App\Qwaacty.App.csproj") `
         --configuration Release `
         --output $publishPath
     if ($LASTEXITCODE -ne 0) {
@@ -110,7 +110,7 @@ if ($Portable) {
         Remove-Item -LiteralPath $portablePath -Recurse -Force
     }
 
-    & $dotnet publish (Join-Path $root "src\Powerty.App\Powerty.App.csproj") `
+    & $dotnet publish (Join-Path $root "src\Qwaacty.App\Qwaacty.App.csproj") `
         --configuration Release `
         --runtime win-x64 `
         --self-contained true `
@@ -134,10 +134,10 @@ if ($Portable) {
     }
 
     $usageText = @'
-Powerty — 绿色版（免安装）
+Qwaacty — 绿色版（免安装）
 ==================================
 
-启动方式：双击 Powerty.App.exe
+启动方式：双击 Qwaacty.App.exe
 
 特点：
 1. 自包含版本：无需安装 .NET 运行时或任何依赖，整个文件夹可拷贝到任意位置（含 U 盘）使用。
@@ -152,7 +152,7 @@ Powerty — 绿色版（免安装）
 - 关闭主窗口后程序驻留系统托盘（快捷键继续有效）；双击托盘图标重新打开，右键托盘菜单可开关模块或退出。
 - 兼容模式（使用微信/QQ 打字查词必须开启）：这些应用无法被直接读取，需改用临时键入缓冲（仅内存，切换焦点/回车/点击即清空）。
 - 浮窗交互：仅显示词性、音标与释义；多条结果时第一条完整显示，其余以横向词条折叠，点击即可展开；可按住顶部拖动位置、拖右下角调节大小、鼠标滚轮滚动；字体、字号与不透明度在主窗口「浮窗外观」调整（含实时预览框）。
-- 诊断日志（默认开启，仅记录事件元数据：应用名/成功失败/错误，不含任何文本内容）：出现问题时可在「%LOCALAPPDATA%\Powerty\diagnostics.log」中查看。
+- 诊断日志（默认开启，仅记录事件元数据：应用名/成功失败/错误，不含任何文本内容）：出现问题时可在「%LOCALAPPDATA%\Qwaacty\diagnostics.log」中查看。
 - 程序只允许运行一个实例；重复启动会提示到系统托盘查找图标。
 - 主界面参考 VS Code 深色风格。
 
@@ -167,7 +167,7 @@ Powerty — 绿色版（免安装）
 '@
     Set-Content -LiteralPath (Join-Path $portablePath "使用说明.txt") -Value $usageText -Encoding UTF8
 
-    $zipPath = Join-Path $root "artifacts\Powerty-Green-x64.zip"
+    $zipPath = Join-Path $root "artifacts\Qwaacty-Green-x64.zip"
     if (Test-Path -LiteralPath $zipPath) {
         Remove-Item -LiteralPath $zipPath -Force
     }
@@ -195,12 +195,12 @@ else {
 }
 
 if ($null -eq $compilerPath) {
-    Write-Host "Published app to $publishPath. Install Inno Setup 6 and run installer\Powerty.iss to create the installer."
+    Write-Host "Published app to $publishPath. Install Inno Setup 6 and run installer\Qwaacty.iss to create the installer."
     exit 0
 }
 
 New-Item -ItemType Directory -Force -Path $installerPath | Out-Null
-& $compilerPath "/O$installerPath" (Join-Path $root "installer\Powerty.iss")
+& $compilerPath "/O$installerPath" (Join-Path $root "installer\Qwaacty.iss")
 if ($LASTEXITCODE -ne 0) {
     throw "Installer compilation failed."
 }

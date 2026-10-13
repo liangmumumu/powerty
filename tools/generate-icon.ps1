@@ -1,11 +1,11 @@
-# Generates app.ico for Powerty: flat minimal style (ChatGPT-inspired).
+# Generates app.ico for Qwaacty: flat minimal style (ChatGPT-inspired).
 # A single hollow "T": outline stroke + interior filled with dense 45-degree
 # left-leaning diagonal hatch lines (thinner than the outline, one shade apart).
 # Default: black outline on transparent background (for light backgrounds).
 # -Inverted: white outline + light gray hatch (for dark taskbars/backgrounds).
 param(
     [switch]$Inverted,
-    [string]$OutputDirectory = (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..\src\Powerty.App")
+    [string]$OutputDirectory = (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..\src\Qwaacty.App")
 )
 
 $ErrorActionPreference = "Stop"

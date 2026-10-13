@@ -10,7 +10,7 @@ tools/ui-preview/
 .dotnet-home/
 .nuget-packages/
 
-# ---- 第三方安装器工具（请自行安装 Inno Setup 6 后编译 installer\Powerty.iss） ----
+# ---- 第三方安装器工具（请自行安装 Inno Setup 6 后编译 installer\Qwaacty.iss） ----
 tools/InnoSetup6/
 tools/innosetup-*.exe
 
