@@ -101,7 +101,27 @@ internal sealed class WindowsInputMonitor : IDisposable
 
     public void Dispose() => Stop();
 
+    // Reused buffers: the hook callback must stay allocation-free (it runs for every
+    // keystroke on the UI thread).
+    private readonly byte[] _keyboardStateBuffer = new byte[256];
+    private readonly StringBuilder _characterBuffer = new StringBuilder(8);
+
     private IntPtr OnKeyboardEvent(int code, IntPtr message, IntPtr data)
+    {
+        // The callback arrives via reverse P/Invoke from user32: a managed exception
+        // escaping it would terminate the process (and skip CallNextHookEx).
+        try
+        {
+            return OnKeyboardEventCore(code, message, data);
+        }
+        catch (Exception exception)
+        {
+            DiagnosticsLog.Write("MON", $"keyboard hook callback failed: {exception.GetType().Name} {exception.Message}");
+            return CallNextHookEx(_hookHandle, code, message, data);
+        }
+    }
+
+    private IntPtr OnKeyboardEventCore(int code, IntPtr message, IntPtr data)
     {
         if (code == HcAction && (message.ToInt32() == WmKeyDown || message.ToInt32() == WmSysKeyDown))
         {
@@ -164,17 +184,16 @@ internal sealed class WindowsInputMonitor : IDisposable
             return;
         }
 
-        var keyboardState = new byte[256];
-        if (!GetKeyboardState(keyboardState))
+        if (!GetKeyboardState(_keyboardStateBuffer))
         {
             return;
         }
 
-        var characters = new StringBuilder(8);
-        var count = ToUnicodeEx(keyData.VirtualKey, keyData.ScanCode, keyboardState, characters, characters.Capacity, 0, GetKeyboardLayout(0));
-        for (var index = 0; index < count && index < characters.Length; index++)
+        _characterBuffer.Clear();
+        var count = ToUnicodeEx(keyData.VirtualKey, keyData.ScanCode, _keyboardStateBuffer, _characterBuffer, _characterBuffer.Capacity, 0, GetKeyboardLayout(0));
+        for (var index = 0; index < count && index < _characterBuffer.Length; index++)
         {
-            var character = characters[index];
+            var character = _characterBuffer[index];
             if (!char.IsControl(character))
             {
                 CharacterTyped?.Invoke(character);

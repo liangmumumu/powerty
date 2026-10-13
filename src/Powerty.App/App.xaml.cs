@@ -1,5 +1,7 @@
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace Powerty.App;
 
@@ -9,6 +11,14 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Last-resort safety net: WPF tears the process down on any unhandled UI
+        // exception. Log it and keep running (the tray and hotkeys stay alive); also
+        // make sure an escape in a background task cannot kill the app silently.
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+        AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
+        DiagnosticsLog.Enabled = true;
+
         // A second instance would silently fail to register the global hotkeys
         // (they are exclusive), so refuse to start twice.
         _singleInstanceMutex = new Mutex(initiallyOwned: true, @"Local\Powerty.SingleInstance", out var createdNew);
@@ -23,8 +33,24 @@ public partial class App : Application
             return;
         }
 
-        DiagnosticsLog.Enabled = true;
         base.OnStartup(e);
+    }
+
+    private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        DiagnosticsLog.Write("CRASH", $"unhandled ui exception: {e.Exception}");
+        e.Handled = true;
+    }
+
+    private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        DiagnosticsLog.Write("CRASH", $"unobserved task exception: {e.Exception}");
+        e.SetObserved();
+    }
+
+    private static void OnDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        DiagnosticsLog.Write("CRASH", $"unhandled exception: {e.ExceptionObject}");
     }
 
     protected override void OnExit(ExitEventArgs e)

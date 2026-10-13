@@ -67,6 +67,14 @@ public static class LexiconFormat
             throw new InvalidDataException("词库文件已损坏。");
         }
 
+        // Sanity bound: every entry occupies at least ~9 bytes on disk, so a count
+        // larger than the remaining file size cannot be genuine — a corrupted header
+        // must not make List preallocate gigabytes and crash the app at startup.
+        if (stream.CanSeek && count > (stream.Length - stream.Position) / 9 + 1)
+        {
+            throw new InvalidDataException("词库文件已损坏（条目数异常）。");
+        }
+
         var words = new List<LexiconWord>(count);
         for (var index = 0; index < count; index++)
         {

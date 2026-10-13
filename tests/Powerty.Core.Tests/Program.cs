@@ -4,6 +4,15 @@ using System.Text;
 using System.Text.Json;
 using Powerty.Core;
 
+string? lexiconArgument = null;
+for (var index = 0; index < args.Length - 1; index++)
+{
+    if (args[index] == "--lexicon")
+    {
+        lexiconArgument = args[index + 1];
+    }
+}
+
 if (args.Length > 1 && args[0] == "--stress")
 {
     RunStress(args[1]);
@@ -643,7 +652,13 @@ RunAsync("Selection queries allow longer text but still prefer local", async () 
     Assert(!tooLong.Found && tooLong.Error is not null, "Selection queries beyond the cap should be rejected.");
 });
 
-var realLexiconPath = Environment.GetEnvironmentVariable("POWERTY_LEXICON");
+var realLexiconPath = lexiconArgument ?? Environment.GetEnvironmentVariable("POWERTY_LEXICON");
+if (lexiconArgument is not null && !File.Exists(lexiconArgument))
+{
+    Console.WriteLine($"LEXICON NOT FOUND: {lexiconArgument}");
+    Environment.Exit(1);
+}
+
 if (!string.IsNullOrEmpty(realLexiconPath) && File.Exists(realLexiconPath))
 {
     RunSync("Real lexicon loads and answers both directions", () =>
@@ -673,8 +688,18 @@ if (!string.IsNullOrEmpty(realLexiconPath) && File.Exists(realLexiconPath))
         {
             var result = lookup.FindAsync(inflected, LookupDirection.EnglishToChinese, allowOnline: false, CancellationToken.None)
                 .GetAwaiter().GetResult();
-            Assert(result.Found, $"Real lexicon missed the base form for {inflected}.");
-            Console.WriteLine($"     morphology: {inflected} -> {result.Entries[0].Query} (note: {expected})");
+            // The merged lexicon contains many inflected forms as headwords, so a direct
+            // hit ("running") is as valid as the morphology fallback to the base form
+            // ("run"): both prove the typed form resolves to a dictionary entry with
+            // content. The base-form derivation itself is covered by the offline
+            // morphology unit checks above.
+            Assert(result.Found && result.Entries.Count > 0 && result.Entries[0].Definitions.Count > 0,
+                $"Real lexicon returned no usable entry for {inflected}.");
+            var resolved = result.Entries[0].Query;
+            Assert(string.Equals(resolved, inflected, StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(resolved, expected, StringComparison.OrdinalIgnoreCase),
+                $"Lookup for {inflected} resolved to '{resolved}', expected '{inflected}' or '{expected}'.");
+            Console.WriteLine($"     morphology: {inflected} -> {resolved} (base: {expected})");
         }
     });
 }

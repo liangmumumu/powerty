@@ -45,7 +45,7 @@ public static class ContextEnhancePrompt
         else
         {
             var squashed = Squash(context);
-            builder.Append(squashed.Length > MaxContextCharacters ? squashed[..MaxContextCharacters] + "…" : squashed);
+            builder.Append(squashed.Length > MaxContextCharacters ? TextBoundary.Truncate(squashed, MaxContextCharacters) + "…" : squashed);
         }
 
         builder.Append("\n\n【选中内容】\n");

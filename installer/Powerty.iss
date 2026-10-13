@@ -30,3 +30,8 @@ Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Powerty"; ValueData: """{app}\{#AppExeName}"""; Tasks: autostart; Flags: uninsdeletevalue
+; Unconditional cleanup: the in-app "start with Windows" toggle writes this value
+; outside the installer, so uninstall must remove it even if the task was unchecked.
+; ValueType "none" means Setup writes nothing at install time but still deletes the
+; value at uninstall.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Powerty"; Flags: uninsdeletevalue

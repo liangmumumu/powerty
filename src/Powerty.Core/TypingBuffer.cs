@@ -26,7 +26,14 @@ public sealed class TypingBuffer
         _text.Append(character);
         if (_text.Length > _capacity)
         {
-            _text.Remove(0, _text.Length - _capacity);
+            var cut = _text.Length - _capacity;
+            if (char.IsLowSurrogate(_text[cut]))
+            {
+                // Never split a surrogate pair at the window edge.
+                cut++;
+            }
+
+            _text.Remove(0, cut);
         }
     }
 

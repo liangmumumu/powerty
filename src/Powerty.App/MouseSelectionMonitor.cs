@@ -83,6 +83,21 @@ internal sealed class MouseSelectionMonitor : IDisposable
 
     private IntPtr OnMouseEvent(int code, IntPtr message, IntPtr data)
     {
+        // The callback arrives via reverse P/Invoke from user32: a managed exception
+        // escaping it would terminate the process (and skip CallNextHookEx).
+        try
+        {
+            return OnMouseEventCore(code, message, data);
+        }
+        catch (Exception exception)
+        {
+            DiagnosticsLog.Write("MON", $"mouse hook callback failed: {exception.GetType().Name} {exception.Message}");
+            return CallNextHookEx(_hookHandle, code, message, data);
+        }
+    }
+
+    private IntPtr OnMouseEventCore(int code, IntPtr message, IntPtr data)
+    {
         if (code == HcAction)
         {
             var eventType = message.ToInt32();

@@ -39,6 +39,15 @@ if ($LASTEXITCODE -ne 0) {
     throw "Core checks failed."
 }
 
+# The publish directory is rebuilt from scratch every run: `dotnet publish` never
+# deletes stale files, so leftovers (old dlls, an old lexicon) would otherwise
+# silently end up inside the installer and the green build.
+if (Test-Path -LiteralPath $publishPath) {
+    Remove-Item -LiteralPath $publishPath -Recurse -Force
+}
+
+New-Item -ItemType Directory -Force -Path $publishPath | Out-Null
+
 if ($SelfContained) {
     & $dotnet publish (Join-Path $root "src\Powerty.App\Powerty.App.csproj") `
         --configuration Release `
@@ -68,6 +77,9 @@ if ($LexiconSource) {
             $lexiconArguments += @("--ecdict", $EcdictSource, "--ecdict-phrase-words", "6")
             Write-Host "Merging ECDICT entries from $EcdictSource"
         }
+        elseif ($PSBoundParameters.ContainsKey('EcdictSource')) {
+            throw "ECDICT source not found: $EcdictSource"
+        }
 
         if (Test-Path -LiteralPath $curatedPath) {
             $lexiconArguments += @("--curated", $curatedPath)
@@ -78,14 +90,16 @@ if ($LexiconSource) {
             throw "Lexicon build failed."
         }
 
-        $env:POWERTY_LEXICON = $lexiconOutput
-        & $dotnet run --project $testProject --configuration Release
-        $env:POWERTY_LEXICON = $null
+        & $dotnet run --project $testProject --configuration Release -- --lexicon $lexiconOutput
         if ($LASTEXITCODE -ne 0) {
             throw "Real lexicon verification failed."
         }
     }
     else {
+        if ($PSBoundParameters.ContainsKey('LexiconSource')) {
+            throw "Lexicon source not found: $LexiconSource"
+        }
+
         Write-Host "Lexicon source not found at $LexiconSource; the app will use built-in demo entries. Pass -LexiconSource to override."
     }
 }

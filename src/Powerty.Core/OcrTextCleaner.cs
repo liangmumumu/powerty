@@ -38,7 +38,7 @@ public static class OcrTextCleaner
         }
 
         var normalized = builder.ToString().Trim();
-        return normalized.Length > MaxTextLength ? normalized[..MaxTextLength] : normalized;
+        return normalized.Length > MaxTextLength ? TextBoundary.Truncate(normalized, MaxTextLength) : normalized;
     }
 
     private static void AppendLine(StringBuilder builder, string line)

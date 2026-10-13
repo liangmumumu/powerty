@@ -56,6 +56,8 @@ public partial class MainWindow : Window
     private bool _exiting;
     private bool _trayHintShown;
     private bool _readInFlight;
+    private Task<FocusedTextReadResult>? _pendingUiaRead;
+    private bool _trayIconFailed;
     private bool _updatingTray;
     private long _uiaSuspendUntilTicks;
     private DateTime _lastCompatHintUtc = DateTime.MinValue;
@@ -177,6 +179,7 @@ public partial class MainWindow : Window
         _mouseMonitor.PointerPressed += () => DispatchInput(OnMousePointerPressed);
         _mouseMonitor.DragSelectCompleted += (start, end, hookTicks) => DispatchInput(() => OnDragSelectCompleted(start, end, hookTicks));
         _lookupWindow.SizeAdjusted += OnLookupWindowSizeAdjusted;
+        _lookupWindow.CloseRequested += () => DispatchInput(OnLookupWindowCloseRequested);
         // Create the popup's window handle eagerly; the first Show() afterwards is cheap,
         // which keeps the UI thread from stalling long enough for Windows to drop the
         // low-level mouse hook.
@@ -420,6 +423,8 @@ public partial class MainWindow : Window
         }
         catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
         {
+            // Without a tray icon there is no way back: closing the window must exit.
+            _trayIconFailed = true;
             SetStatus($"托盘图标初始化失败：{exception.Message}");
         }
     }
@@ -499,7 +504,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
-        if (!_exiting)
+        if (!_exiting && !_trayIconFailed)
         {
             e.Cancel = true;
             HideToTray();
@@ -523,12 +528,12 @@ public partial class MainWindow : Window
 
         UpdateMonitoring();
         UpdateTrayChecks();
-        SaveSettingsOrReport();
+        var saved = SaveSettingsOrReport();
         var message = enabled ? "键入实时翻译：已开启。" : "键入实时翻译：已关闭。";
         SetStatus(message);
         if (announce)
         {
-            Announce(message);
+            Announce(saved ? message : "设置保存失败，本次修改仅在当前运行内有效。");
         }
     }
 
@@ -547,14 +552,14 @@ public partial class MainWindow : Window
         UpdateMonitoring();
         UpdateTrayChecks();
         UpdateHomeSummary();
-        SaveSettingsOrReport();
+        var saved = SaveSettingsOrReport();
         var message = enabled
             ? $"快捷键划词：已开启（选中文本后按 {_settings.SelectionHotkey} 翻译）。"
             : "快捷键划词：已关闭。";
         SetStatus(message);
         if (announce)
         {
-            Announce(message);
+            Announce(saved ? message : "设置保存失败，本次修改仅在当前运行内有效。");
         }
     }
 
@@ -572,12 +577,12 @@ public partial class MainWindow : Window
 
         UpdateMonitoring();
         UpdateHomeSummary();
-        SaveSettingsOrReport();
+        var saved = SaveSettingsOrReport();
         var message = enabled ? "自动划词翻译：已开启。" : "自动划词翻译：已关闭。";
         SetStatus(message);
         if (announce)
         {
-            Announce(message);
+            Announce(saved ? message : "设置保存失败，本次修改仅在当前运行内有效。");
         }
     }
 
@@ -836,10 +841,16 @@ public partial class MainWindow : Window
         {
             try
             {
-                hotkey.Register(previous);
+                // previous is empty when the initial registration at startup failed;
+                // re-registering an empty chord would throw FormatException and crash.
+                if (!string.IsNullOrWhiteSpace(previous))
+                {
+                    hotkey.Register(previous);
+                }
             }
-            catch (Win32Exception)
+            catch (Exception restoreException) when (restoreException is Win32Exception or FormatException)
             {
+                DiagnosticsLog.Write("HOTKEY", $"rollback failed: {restoreException.Message}");
             }
 
             SetStatus($"设置{label}失败：{exception.Message}");
@@ -930,16 +941,36 @@ public partial class MainWindow : Window
         var caret = 0;
         string? failureMessage = null;
         var uiaStatus = "skipped";
+        var passwordBlocked = false;
         _typingAnchor = null;
         _typingInputBounds = null;
 
-        if (Environment.TickCount64 >= _uiaSuspendUntilTicks)
+        if (_pendingUiaRead is { IsCompleted: false })
         {
+            // A previous UI Automation read is still hanging inside a busy app; do not
+            // stack another wait — fall back to the compatibility buffer this round.
+            uiaStatus = "busy";
+        }
+        else if (Environment.TickCount64 >= _uiaSuspendUntilTicks)
+        {
+            _pendingUiaRead = null;
             _readInFlight = true;
             try
             {
                 var readTask = Task.Run(FocusedTextReader.Read);
+                _pendingUiaRead = readTask;
                 var completed = await Task.WhenAny(readTask, Task.Delay(TypingReadTimeoutMilliseconds)) == readTask;
+                if (completed)
+                {
+                    _pendingUiaRead = null;
+                }
+                else
+                {
+                    // Keep the reference (no new reads until it resolves) and observe its
+                    // eventual exception so it is never left unobserved.
+                    _ = readTask.ContinueWith(task => _ = task.Exception, TaskScheduler.Default);
+                }
+
                 var readResult = completed
                     ? await readTask
                     : new FocusedTextReadResult(false, null, 0, "读取输入内容超时。");
@@ -955,6 +986,7 @@ public partial class MainWindow : Window
                 {
                     failureMessage = readResult.Message;
                     uiaStatus = completed ? "fail" : "timeout";
+                    passwordBlocked = readResult.PasswordBlocked;
                     if (!completed)
                     {
                         // UI Automation is hanging for this foreground app; trust the
@@ -967,6 +999,24 @@ public partial class MainWindow : Window
             {
                 _readInFlight = false;
             }
+        }
+
+        if (passwordBlocked)
+        {
+            // Confirmed password field: honour the "no lookup, no network" promise —
+            // not even the compatibility buffer may feed a query from here.
+            _typingBuffer.Clear();
+            CancelLookup();
+            _typingFallbackTimer.Stop();
+            _pendingTypingFallback = null;
+            if (_popupTrigger == PopupTrigger.Typing)
+            {
+                ClearTypingSession(hidePopup: true);
+            }
+
+            DiagnosticsLog.Write("TYPE", "password field: typing lookup suppressed");
+            SetStatus("当前为密码输入区域：已暂停查词并清空输入缓冲。");
+            return;
         }
 
         var candidates = new List<QueryCandidate>(2);
@@ -1092,6 +1142,12 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
+        catch (Exception exception)
+        {
+            // async void: an escaping exception would tear the process down.
+            DiagnosticsLog.Write("TYPE", $"tick failed: {exception.GetType().Name} {exception.Message}");
+            SetStatus($"查词出错：{exception.Message}");
+        }
     }
 
     private async Task RunTypingFallbackAsync(
@@ -1201,6 +1257,12 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
+        catch (Exception exception)
+        {
+            // async void: an escaping exception would tear the process down.
+            DiagnosticsLog.Write("TYPE", $"fallback failed: {exception.GetType().Name} {exception.Message}");
+            SetStatus($"查词出错：{exception.Message}");
+        }
     }
 
     private void ShowTypingMiss(QueryCandidate primary, string message)
@@ -1241,6 +1303,20 @@ public partial class MainWindow : Window
         responses.SelectMany(response => response.Entries)
             .DistinctBy(entry => (entry.Query, entry.Direction, string.Join("|", entry.Definitions)))
             .ToArray();
+
+    private void OnLookupWindowCloseRequested()
+    {
+        // ✕ must end the typing session, otherwise the next keystroke would pop the
+        // box right back; for the other triggers a plain hide is enough.
+        if (_popupTrigger == PopupTrigger.Typing)
+        {
+            ClearTypingSession(hidePopup: false);
+        }
+        else
+        {
+            _popupTrigger = PopupTrigger.None;
+        }
+    }
 
     private void OnMousePointerPressed()
     {
@@ -1359,6 +1435,13 @@ public partial class MainWindow : Window
         {
             ShowPopupMessage("截图翻译", "未识别到文字。", PopupTrigger.Screenshot);
             return;
+        }
+
+        if (text.Length > DictionaryLookup.MaxSelectionQueryLength)
+        {
+            // Same length policy as the selection path: an oversized query would be
+            // rejected as "查询内容过长" and wrongly trip the online backoff.
+            text = text[..DictionaryLookup.MaxSelectionQueryLength];
         }
 
         var direction = OcrTextCleaner.LooksChinese(text)
@@ -1775,11 +1858,15 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowPopupStreaming(string title, string text)
+    private void ShowPopupStreaming(string title, string text, PopupTrigger trigger)
     {
-        _popupTrigger = PopupTrigger.None;
+        _popupTrigger = trigger;
         _popupExpiresAtUtc = DateTime.MinValue;
-        _lookupWindow.ShowStreamingText(title, text);
+        _lookupWindow.ShowStreamingText(
+            title,
+            text,
+            trigger == PopupTrigger.Typing ? _typingAnchor : null,
+            trigger == PopupTrigger.Typing ? _typingInputBounds : null);
         UpdatePopupAutoCloseTimer();
     }
 
@@ -1806,7 +1893,7 @@ public partial class MainWindow : Window
         var watch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            ShowPopupStreaming("AI 翻译", "正在翻译…");
+            ShowPopupStreaming("AI 翻译", "正在翻译…", trigger);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(20));
             var firstChunk = true;
@@ -1833,8 +1920,10 @@ public partial class MainWindow : Window
         {
             throw;
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or IOException or System.Text.Json.JsonException)
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
+            // Anything except our own cancellation (bad URL, proxy errors, malformed
+            // responses) must surface as a failed translation, not a crash.
             DiagnosticsLog.Write("AI", $"fail after {watch.ElapsedMilliseconds} ms: {exception.GetType().Name} {exception.Message}");
             return false;
         }
@@ -1858,8 +1947,21 @@ public partial class MainWindow : Window
         string? context = null;
         try
         {
-            var contextResult = await Task.Run(() => FocusedTextReader.ReadContextAroundSelection(query), cancellationToken);
-            context = contextResult.Ok ? contextResult.Context : null;
+            var contextTask = Task.Run(() => FocusedTextReader.ReadContextAroundSelection(query), cancellationToken);
+            if (await Task.WhenAny(contextTask, Task.Delay(1200, cancellationToken)) == contextTask)
+            {
+                var contextResult = await contextTask;
+                context = contextResult.Ok ? contextResult.Context : null;
+            }
+            else if (cancellationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(cancellationToken);
+            }
+            else
+            {
+                // Busy app: continue without context instead of hanging the enhancement.
+                _ = contextTask.ContinueWith(task => _ = task.Exception, TaskScheduler.Default);
+            }
         }
         catch (Exception exception) when (exception is OperationCanceledException or InvalidOperationException)
         {
@@ -1901,11 +2003,13 @@ public partial class MainWindow : Window
                 }
 
                 builder.Append(chunk);
+                // Keep the popup alive while the AI works even without live streaming:
+                // otherwise a slow response is silently swallowed by the auto-close.
+                _popupShownAtUtc = DateTime.UtcNow;
                 if (_settings.AiStreaming && Environment.TickCount64 - lastUiUpdateTicks >= 100)
                 {
                     lastUiUpdateTicks = Environment.TickCount64;
                     _lookupWindow.SetAiSection("AI 增强翻译", builder.ToString().Trim());
-                    _popupShownAtUtc = DateTime.UtcNow;
                 }
             }
         }
@@ -1913,7 +2017,7 @@ public partial class MainWindow : Window
         {
             throw;
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or IOException or System.Text.Json.JsonException)
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             DiagnosticsLog.Write("AI", $"enhance fail after {watch.ElapsedMilliseconds} ms: {exception.GetType().Name} {exception.Message}");
             _lookupWindow.SetAiSection("AI 增强翻译", $"AI 增强失败：{exception.Message}", isError: true);
@@ -1963,6 +2067,17 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Screen-capture overlays (Snipaste etc.) are not text selections: running the
+        // Ctrl+C / Ctrl+Insert read into them interferes with the capture tool's own
+        // clipboard hand-off (a late injected key can land in the app that regains
+        // focus and overwrite the freshly copied screenshot). Leave them alone.
+        var foregroundProcess = GetForegroundProcessName();
+        if (IsScreenCaptureTool(foregroundProcess))
+        {
+            DiagnosticsLog.Write("SEL", $"skip: gesture in capture tool ({foregroundProcess})");
+            return;
+        }
+
         // Ignore gestures that begin on our own windows (dragging the popup or the
         // main window); a selection that merely ends over the popup still counts.
         if (IsPointInsideOwnWindow(_lookupWindow, start) || IsPointInsideOwnWindow(this, start))
@@ -1988,6 +2103,13 @@ public partial class MainWindow : Window
             SetStatus($"已选中文本：按 {_settings.SelectionHotkey} 划词翻译。");
         }
     }
+
+    private static bool IsScreenCaptureTool(string? processName) =>
+        processName is not null &&
+        (processName.Equals("Snipaste", StringComparison.OrdinalIgnoreCase) ||
+         processName.Equals("SnippingTool", StringComparison.OrdinalIgnoreCase) ||
+         processName.Equals("ScreenSketch", StringComparison.OrdinalIgnoreCase) ||
+         processName.Equals("PixPin", StringComparison.OrdinalIgnoreCase));
 
     private async Task SelectionLookupAsync(Point? point, bool triggeredByHotkey)
     {
@@ -2277,7 +2399,8 @@ public partial class MainWindow : Window
     private void ApplyPopupLayoutButton_OnClick(object sender, RoutedEventArgs e)
     {
         if (!double.TryParse(PopupWidthTextBox.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var width) ||
-            !double.TryParse(PopupHeightTextBox.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var height))
+            !double.TryParse(PopupHeightTextBox.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var height) ||
+            !double.IsFinite(width) || !double.IsFinite(height))
         {
             SetStatus("浮窗尺寸无效，请输入数字。");
             return;
@@ -2412,22 +2535,33 @@ public partial class MainWindow : Window
         return IntPtr.Zero;
     }
 
-    private void SaveSettingsOrReport()
+    private bool SaveSettingsOrReport()
     {
+        var saved = true;
         try
         {
             SettingsStore.Save(_settings);
         }
         catch (IOException exception)
         {
+            saved = false;
             SetStatus($"保存设置失败：{exception.Message}");
         }
         catch (UnauthorizedAccessException exception)
         {
+            saved = false;
             SetStatus($"保存设置失败：{exception.Message}");
         }
         catch (SecurityException exception)
         {
+            saved = false;
+            SetStatus($"保存设置失败：{exception.Message}");
+        }
+        catch (Exception exception)
+        {
+            // Anything else (e.g. a value that cannot be serialized) must not crash the app.
+            saved = false;
+            DiagnosticsLog.Write("SET", $"save failed: {exception.GetType().Name} {exception.Message}");
             SetStatus($"保存设置失败：{exception.Message}");
         }
 
@@ -2435,6 +2569,7 @@ public partial class MainWindow : Window
         // silently drop the low-level hooks; refresh them so selection keeps working
         // without restarting the app.
         RefreshMonitors(force: false);
+        return saved;
     }
 
     private void SetStatus(string message) => StatusTextBlock.Text = message;
@@ -2448,7 +2583,13 @@ public partial class MainWindow : Window
 
         try
         {
-            _trayIcon.Text = message.Length > 63 ? message[..62] + "…" : message;
+            var limit = message.Length > 63 ? 62 : message.Length;
+            if (limit < message.Length && limit > 0 && char.IsHighSurrogate(message[limit - 1]))
+            {
+                limit--;
+            }
+
+            _trayIcon.Text = limit == message.Length ? message : message[..limit] + "…";
         }
         catch (ArgumentException)
         {
@@ -2473,10 +2614,13 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _inputTimer.Stop();
+        _typingFallbackTimer.Stop();
         _popupAutoCloseTimer.Stop();
         _hookWatchdogTimer.Stop();
         CancelLookup();
         _inputMonitor.InputActivity -= InputMonitor_OnInputActivity;
+        _inputMonitor.CharacterTyped -= OnCharacterTyped;
+        _inputMonitor.BackspaceTyped -= OnBackspaceTyped;
         try
         {
             _inputMonitor.Dispose();
@@ -2499,6 +2643,7 @@ public partial class MainWindow : Window
             _selectionHotkey?.Unregister();
             _selectionToggleHotkey?.Unregister();
             _selectionAutoToggleHotkey?.Unregister();
+            _screenshotHotkey?.Unregister();
         }
         catch (Win32Exception)
         {

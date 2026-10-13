@@ -21,3 +21,14 @@ docs/
 *.user
 Thumbs.db
 desktop.ini
+
+# ---- 可能的产物与本地状态 ----
+installer/Output/
+*.log
+*.binlog
+settings.json
+portable.txt
+*.ttlx
+
+# ---- 本地反馈/审计材料（不入库） ----
+使用反馈/

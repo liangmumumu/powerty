@@ -272,16 +272,16 @@ public partial class LookupWindow : Window
         });
     }
 
-    public void ShowStreamingText(string title, string text)
+    public void ShowStreamingText(string title, string text, Rect? typingAnchor = null, Rect? typingInputBounds = null)
     {
         var stopwatch = Stopwatch.StartNew();
         _lastEntries = [];
         _messageText = text;
         _streamMode = true;
         _compactTypingMode = false;
-        _typingPopupMode = false;
-        _typingAnchor = null;
-        _typingInputBounds = null;
+        _typingPopupMode = typingAnchor is not null || typingInputBounds is not null;
+        _typingAnchor = typingAnchor ?? typingInputBounds;
+        _typingInputBounds = typingInputBounds;
         HeaderText.Text = title;
         RenderMessage();
         if (!IsVisible)
@@ -937,7 +937,14 @@ public partial class LookupWindow : Window
         e.Handled = true;
     }
 
-    private void CloseButton_OnClick(object sender, RoutedEventArgs e) => Hide();
+    /// <summary>Raised when the user clicks the ✕ close button, before the window hides.</summary>
+    public event Action? CloseRequested;
+
+    private void CloseButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        CloseRequested?.Invoke();
+        Hide();
+    }
 
     private void OnWindowPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {

@@ -5,7 +5,17 @@ using System.Text.Json;
 
 namespace Powerty.Core;
 
-public sealed record AiTranslatorOptions(string BaseUrl, string ApiKey, string Model);
+public sealed class AiTranslatorOptions(string baseUrl, string apiKey, string model)
+{
+    public string BaseUrl { get; } = baseUrl;
+    public string ApiKey { get; } = apiKey;
+    public string Model { get; } = model;
+
+    /// <summary>Masks the API key: the default record ToString() would print it in plain
+    /// text wherever an interpolated string is used.</summary>
+    public override string ToString() =>
+        $"AiTranslatorOptions {{ BaseUrl = {BaseUrl}, Model = {Model}, ApiKey = *** }}";
+}
 
 public sealed class OpenAiCompatibleTranslator(HttpClient httpClient)
 {
@@ -36,6 +46,17 @@ public sealed class OpenAiCompatibleTranslator(HttpClient httpClient)
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var uri = CombineUrl(options.BaseUrl, "chat/completions");
+        // Guard against malformed base URLs (a missing scheme makes HttpClient throw)
+        // and against sending the API key in cleartext: only https, or loopback http
+        // (for local servers like Ollama / LM Studio), is accepted.
+        if (!Uri.TryCreate(uri, UriKind.Absolute, out var endpoint) ||
+            (endpoint.Scheme != Uri.UriSchemeHttps &&
+             !(endpoint.Scheme == Uri.UriSchemeHttp && endpoint.IsLoopback)))
+        {
+            throw new InvalidOperationException(
+                "AI 接口地址无效：请填写以 https:// 开头的完整地址（本机服务可用 http://127.0.0.1 或 http://localhost）。");
+        }
+
         var payload = new
         {
             model = options.Model,
@@ -105,6 +126,13 @@ public sealed class OpenAiCompatibleTranslator(HttpClient httpClient)
         try
         {
             using var document = JsonDocument.Parse(data);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                // Gateways occasionally return bare JSON scalars/arrays ("data: null");
+                // TryGetProperty would throw InvalidOperationException on them.
+                return null;
+            }
+
             if (!document.RootElement.TryGetProperty("choices", out var choices) ||
                 choices.ValueKind != JsonValueKind.Array ||
                 choices.GetArrayLength() == 0)

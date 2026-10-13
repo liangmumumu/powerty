@@ -56,6 +56,7 @@ internal static class SettingsStore
 
         var json = File.ReadAllText(SettingsPath);
         var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+        settings.AiApiKey = Dpapi.Unprotect(settings.AiApiKey);
         var needsRewrite = false;
 
         // v1 stored the selection auto-trigger default as true; the feature now defaults to hotkey-only.
@@ -200,8 +201,31 @@ internal static class SettingsStore
     public static void Save(AppSettings settings)
     {
         Directory.CreateDirectory(SettingsDirectory);
-        var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(SettingsPath, json);
+        // Encrypt the API key before it touches disk (DPAPI, current-user scope).
+        var plainKey = settings.AiApiKey;
+        settings.AiApiKey = Dpapi.Protect(plainKey) ?? plainKey;
+        string json;
+        try
+        {
+            json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+        }
+        finally
+        {
+            settings.AiApiKey = plainKey;
+        }
+
+        // Atomic-ish write: never truncate the live file; keep one .bak so a torn
+        // write cannot silently reset every setting (including the AI key).
+        var temporaryPath = SettingsPath + ".tmp";
+        File.WriteAllText(temporaryPath, json);
+        if (File.Exists(SettingsPath))
+        {
+            File.Replace(temporaryPath, SettingsPath, SettingsPath + ".bak", ignoreMetadataErrors: true);
+        }
+        else
+        {
+            File.Move(temporaryPath, SettingsPath);
+        }
     }
 }
 

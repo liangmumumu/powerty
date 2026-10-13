@@ -14,7 +14,7 @@ public sealed class MyMemoryLookupProvider(HttpClient httpClient) : IOnlineLooku
         @"NEXT AVAILABLE IN\s+(?:(\d+)\s+HOURS?\s*)?(?:(\d+)\s+MINUTES?)?",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private readonly SemaphoreSlim _requestGate = new(1, 1);
-    private DateTimeOffset _lastRequestUtc;
+    private long _lastRequestTicks;
 
     /// <summary>
     /// Builds the user-facing message for a quota rejection. The service reports
@@ -54,13 +54,15 @@ public sealed class MyMemoryLookupProvider(HttpClient httpClient) : IOnlineLooku
         await _requestGate.WaitAsync(cancellationToken);
         try
         {
-            var remainingDelay = MinimumRequestInterval - (DateTimeOffset.UtcNow - _lastRequestUtc);
-            if (_lastRequestUtc != default && remainingDelay > TimeSpan.Zero)
+            // Monotonic clock: a wall-clock change must never stretch the wait. The delay
+            // is additionally clamped to the interval as a belt-and-braces guard.
+            var remainingDelay = MinimumRequestInterval - TimeSpan.FromMilliseconds(Environment.TickCount64 - _lastRequestTicks);
+            if (_lastRequestTicks != 0 && remainingDelay > TimeSpan.Zero)
             {
-                await Task.Delay(remainingDelay, cancellationToken);
+                await Task.Delay(remainingDelay < MinimumRequestInterval ? remainingDelay : MinimumRequestInterval, cancellationToken);
             }
 
-            _lastRequestUtc = DateTimeOffset.UtcNow;
+            _lastRequestTicks = Environment.TickCount64;
             using var response = await httpClient.GetAsync(uri, cancellationToken);
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {

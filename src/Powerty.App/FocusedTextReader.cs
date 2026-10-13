@@ -11,7 +11,8 @@ internal sealed record FocusedTextReadResult(
     int CaretIndex,
     string? Message,
     Rect? AnchorBounds = null,
-    Rect? InputBounds = null);
+    Rect? InputBounds = null,
+    bool PasswordBlocked = false);
 
 internal sealed record SelectionContextReadResult(bool Ok, string? Context, string? Message);
 
@@ -36,7 +37,12 @@ internal static class FocusedTextReader
             }
 
             var passwordValue = focused.GetCurrentPropertyValue(AutomationElement.IsPasswordProperty, ignoreDefaultValue: true);
-            if (passwordValue is not bool isPassword || isPassword)
+            if (passwordValue is bool isPassword && isPassword)
+            {
+                return new FocusedTextReadResult(false, null, 0, "当前为密码输入区域，已暂停查词。", PasswordBlocked: true);
+            }
+
+            if (passwordValue is not bool)
             {
                 return Unsafe("当前输入区域无法安全识别，已暂停查词。");
             }
@@ -260,7 +266,9 @@ internal static class FocusedTextReader
             : scan.IndexOf(selectionText, StringComparison.Ordinal);
         if (index < 0)
         {
-            var tail = scan.Length > SelectionContextMaxCharacters ? scan[^SelectionContextMaxCharacters..] : scan;
+            // Fall back to the true end of the document, not the end of the truncated
+            // scan window (that would send mid-document text as "context").
+            var tail = value.Length > SelectionContextMaxCharacters ? value[^SelectionContextMaxCharacters..] : value;
             return new SelectionContextReadResult(true, SquashContext(tail), null);
         }
 
