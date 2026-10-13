@@ -70,7 +70,20 @@ internal static class SelectionReader
             var ok = TryReadViaAutomation(out var text, out var blocked);
             return (Ok: ok, Text: text, Blocked: blocked);
         });
-        if (automationTask.Wait(TimeSpan.FromMilliseconds(800)))
+        bool automationCompleted;
+        try
+        {
+            automationCompleted = automationTask.Wait(TimeSpan.FromMilliseconds(800));
+        }
+        catch (AggregateException)
+        {
+            // The task faulted before the timeout: it is finished, so fall through and
+            // release the latch below instead of leaving the UIA fallback disabled for
+            // the rest of the session.
+            automationCompleted = true;
+        }
+
+        if (automationCompleted)
         {
             Interlocked.Exchange(ref _automationAttemptPending, 0);
             if (automationTask.IsCompletedSuccessfully)
@@ -111,13 +124,21 @@ internal static class SelectionReader
                 try
                 {
                     var focused = AutomationElement.FocusedElement;
-                    if (focused is null || focused.Current.ProcessId == Environment.ProcessId)
+                    if (focused is null)
+                    {
+                        // UIA could not answer ("unknown", e.g.微信/QQ/Electron 或超时):
+                        // report null so the caller's ES_PASSWORD fallback runs instead of
+                        // failing open.
+                        return (bool?)null;
+                    }
+
+                    if (focused.Current.ProcessId == Environment.ProcessId)
                     {
                         return (bool?)false;
                     }
 
                     var value = focused.GetCurrentPropertyValue(AutomationElement.IsPasswordProperty, ignoreDefaultValue: true);
-                    return value is bool flag ? flag : null;
+                    return value is bool flag ? flag : (bool?)null;
                 }
                 catch (Exception exception) when (exception is ElementNotAvailableException or InvalidOperationException or COMException or ArgumentException or NotSupportedException)
                 {
@@ -206,8 +227,9 @@ internal static class SelectionReader
         var foregroundAtStart = GetForegroundWindow();
         var foreignClipboardWrite = false;
         // In console windows Ctrl+C doubles as a SIGINT (killing the user's build /
-        // session); Ctrl+Insert is the safe copy chord there.
-        var preferInsert = IsConsoleWindow(foregroundAtStart);
+        // session); Ctrl+Insert is the safe copy chord there. Terminals and IDE hosts
+        // (embedded terminals) get the same treatment.
+        var preferInsert = IsTerminalLikeWindow(foregroundAtStart);
         for (var attempt = 0; attempt < 2 && captured is null; attempt++)
         {
             // Only inject the copy chord while the window that received the gesture is
@@ -441,11 +463,122 @@ internal static class SelectionReader
             || className.StartsWith("PuTTY", StringComparison.Ordinal);
     }
 
+    /// <summary>Terminal hosts whose window class is not enough to identify them: IDE
+    /// windows (VS Code, JetBrains, Visual Studio…) embed terminals inside a generic
+    /// window, and GPU terminal emulators use non-console window classes. Their input
+    /// may be shell input/passwords and Ctrl+C may reach the shell as SIGINT, so they
+    /// are treated like terminals.</summary>
+    private static readonly HashSet<string> TerminalHostProcessNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "code", "code - insiders", "cursor", "windsurf", "vscodium",
+        "devenv", "idea64", "pycharm64", "goland64", "clion64", "webstorm64", "rider64", "rustrover64",
+        "wezterm-gui", "kitty", "alacritty", "tabby", "conemu64", "conemu", "cmder", "mobaxterm"
+    };
+
+    internal static bool IsTerminalLikeWindow(IntPtr handle)
+    {
+        if (IsConsoleWindow(handle))
+        {
+            return true;
+        }
+
+        var processName = GetProcessName(handle);
+        return processName is not null && TerminalHostProcessNames.Contains(processName);
+    }
+
+    private static string? GetProcessName(IntPtr handle)
+    {
+        _ = GetWindowThreadProcessId(handle, out var processId);
+        if (processId == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById((int)processId);
+            return process.ProcessName;
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Non-UIA password check for the current foreground window, used when UI
+    /// Automation cannot verify the focused field.</summary>
+    internal static bool IsForegroundPasswordField() => HasPasswordWindowStyle();
+
     private static bool HasPasswordWindowStyle()
     {
+        // A top-level window never carries ES_PASSWORD (the style lives on the focused
+        // edit child), so ask the GUI thread for the actual focus HWND and check its
+        // style — walking a couple of parents for custom controls that focus a wrapper.
         const int gwlStyle = -16;
         const int esPassword = 0x0020;
-        return (GetWindowLong(GetForegroundWindow(), gwlStyle) & esPassword) != 0;
+        var foreground = GetForegroundWindow();
+        if (foreground == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var threadId = GetWindowThreadProcessId(foreground, out _);
+        if (threadId == 0)
+        {
+            return false;
+        }
+
+        var info = new GuiThreadInfo { Size = Marshal.SizeOf<GuiThreadInfo>() };
+        if (!GetGUIThreadInfo(threadId, ref info) || info.Focus == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var walker = info.Focus;
+        for (var depth = 0; depth < 4 && walker != IntPtr.Zero; depth++)
+        {
+            if ((GetWindowLong(walker, gwlStyle) & esPassword) != 0)
+            {
+                return true;
+            }
+
+            walker = GetParent(walker);
+        }
+
+        return false;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetGUIThreadInfo(uint idThread, ref GuiThreadInfo info);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetParent(IntPtr hWnd);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GuiThreadInfo
+    {
+        public int Size;
+        public uint Flags;
+        public IntPtr Active;
+        public IntPtr Focus;
+        public IntPtr Capture;
+        public IntPtr MenuOwner;
+        public IntPtr MoveSize;
+        public IntPtr Caret;
+        public NativeRect CaretRect;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
     }
 
     [DllImport("user32.dll")]

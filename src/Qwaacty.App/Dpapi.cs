@@ -10,13 +10,19 @@ internal static class Dpapi
 {
     public const string Prefix = "dpapi:";
 
-    /// <summary>Returns "dpapi:&lt;base64&gt;", or the input unchanged when protection is
-    /// unavailable (empty key), or null when protection failed (caller falls back).</summary>
-    public static string? Protect(string plaintext)
+    /// <summary>Win32 error code of the most recent Protect/Unprotect failure (0 = none),
+    /// so failures are diagnosable instead of silent.</summary>
+    public static int LastError { get; private set; }
+
+    /// <summary>Returns "dpapi:&lt;base64&gt;" (empty input yields an empty string), or
+    /// null when protection failed. Callers must NOT fall back to writing the plain
+    /// text — see <c>SettingsStore.Save</c>.</summary>
+    public static string? Protect(string? plaintext)
     {
+        LastError = 0;
         if (string.IsNullOrEmpty(plaintext))
         {
-            return plaintext;
+            return string.Empty;
         }
 
         var bytes = Encoding.UTF8.GetBytes(plaintext);
@@ -27,6 +33,7 @@ internal static class Dpapi
             var input = new DataBlob { Length = bytes.Length, Data = inputData };
             if (!CryptProtectData(ref input, "Qwaacty", IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0, out var output))
             {
+                LastError = Marshal.GetLastWin32Error();
                 return null;
             }
 
@@ -48,9 +55,12 @@ internal static class Dpapi
     }
 
     /// <summary>Reverses <see cref="Protect"/>. Legacy plain-text values (no prefix) are
-    /// returned unchanged; failures degrade to an empty key instead of throwing.</summary>
-    public static string Unprotect(string? stored)
+    /// returned unchanged; an empty value yields an empty string. Returns null when a
+    /// stored "dpapi:…" blob could not be decrypted (different user/machine or a
+    /// corrupted file), so callers can keep the original blob instead of erasing it.</summary>
+    public static string? Unprotect(string? stored)
     {
+        LastError = 0;
         if (string.IsNullOrEmpty(stored))
         {
             return string.Empty;
@@ -71,7 +81,8 @@ internal static class Dpapi
                 var input = new DataBlob { Length = bytes.Length, Data = inputData };
                 if (!CryptUnprotectData(ref input, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0, out var output))
                 {
-                    return string.Empty;
+                    LastError = Marshal.GetLastWin32Error();
+                    return null;
                 }
 
                 try
@@ -92,7 +103,9 @@ internal static class Dpapi
         }
         catch (FormatException)
         {
-            return string.Empty;
+            // ERROR_INVALID_DATA: the stored blob is not valid base64.
+            LastError = 13;
+            return null;
         }
     }
 

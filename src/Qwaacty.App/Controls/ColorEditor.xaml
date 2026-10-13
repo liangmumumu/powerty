@@ -44,7 +44,7 @@
             <TextBlock x:Name="BlueValueText" Grid.Row="2" Grid.Column="2" VerticalAlignment="Center"
                        TextAlignment="Right" FontSize="12" Foreground="{StaticResource VsDimTextBrush}" />
             <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" FontSize="12"
-                       Foreground="{StaticResource VsDimTextBrush}" Text="透明" />
+                       Foreground="{StaticResource VsDimTextBrush}" Text="不透明度" />
             <Slider x:Name="AlphaSlider" Grid.Row="3" Grid.Column="1" Margin="0,2,8,2"
                     Minimum="0" Maximum="255" TickFrequency="1" IsSnapToTickEnabled="True"
                     Style="{StaticResource VsSlider}" ValueChanged="Slider_OnValueChanged"

@@ -84,6 +84,7 @@ public partial class MainWindow : Window
     private DateTime _lastHookRefreshUtc = DateTime.MinValue;
     private long _screenshotSuppressGesturesUntilTicks;
     private List<QueryCandidate>? _pendingTypingFallback;
+    private bool _pendingTypingFallbackUiaUnverified;
     private Rect? _typingAnchor;
     private Rect? _typingInputBounds;
     private readonly List<LookupWindow.RetainedRow> _typingRetained = [];
@@ -118,6 +119,11 @@ public partial class MainWindow : Window
         {
             _settings = new AppSettings();
             startupNotes.Add($"读取设置失败，暂用默认值：{exception.Message}");
+        }
+
+        if (_settings.ApiKeyDecryptFailed)
+        {
+            startupNotes.Add("检测到 AI Key 无法在当前用户下解密（可能更换了电脑或用户），密文已保留；请在设置 → AI 翻译中重新填写 API Key。");
         }
 
         if (string.IsNullOrWhiteSpace(_settings.Hotkey))
@@ -1060,6 +1066,14 @@ public partial class MainWindow : Window
             }
         }
 
+        if (!passwordBlocked && uiaStatus != "ok" && SelectionReader.IsForegroundPasswordField())
+        {
+            // UIA could not verify the field (busy / timed out / unsupported app): fall
+            // back to a non-UIA check of the focus HWND so classic password boxes are
+            // still honoured instead of failing open.
+            passwordBlocked = true;
+        }
+
         if (passwordBlocked)
         {
             // Confirmed password field: honour the "no lookup, no network" promise —
@@ -1077,6 +1091,12 @@ public partial class MainWindow : Window
             SetStatus("当前为密码输入区域：已暂停查词并清空输入缓冲。");
             return;
         }
+
+        // When UIA could not confirm the focused edit control this round (busy, timed
+        // out, or an app that does not expose it properly), the candidates below come
+        // from the raw compatibility buffer — the field's safety is UNKNOWN, so the
+        // network fallback must stay off and only the local dictionary may answer.
+        var uiaUnverified = uiaStatus != "ok";
 
         var candidates = new List<QueryCandidate>(2);
         if (context is not null)
@@ -1190,13 +1210,14 @@ public partial class MainWindow : Window
             if (sinceActivity < TimeSpan.FromMilliseconds(TypingFallbackStableMilliseconds))
             {
                 _pendingTypingFallback = candidates.ToList();
+                _pendingTypingFallbackUiaUnverified = uiaUnverified;
                 _typingFallbackTimer.Interval = TimeSpan.FromMilliseconds(
                     Math.Max(60, TypingFallbackStableMilliseconds - sinceActivity.TotalMilliseconds + 40));
                 _typingFallbackTimer.Start();
                 return;
             }
 
-            await RunTypingFallbackAsync(candidates, cancellationToken);
+            await RunTypingFallbackAsync(candidates, cancellationToken, uiaUnverified);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1211,7 +1232,8 @@ public partial class MainWindow : Window
 
     private async Task RunTypingFallbackAsync(
         IReadOnlyList<QueryCandidate> candidates,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool uiaUnverified)
     {
         var primary = candidates[0];
         if (_recentMisses.TryGetValue(MissKey(primary), out var cached) && cached.ExpiresUtc > DateTime.UtcNow)
@@ -1222,11 +1244,14 @@ public partial class MainWindow : Window
 
         // Privacy guard: terminal keystrokes can be passwords (sudo / ssh prompts) and
         // UIA cannot flag those fields, so terminal input must never reach AI or the
-        // online fallback. The local dictionary still answers normally.
-        var terminalForeground = SelectionReader.IsConsoleWindow(GetForegroundWindow());
+        // online fallback. The local dictionary still answers normally. The same local
+        // only rule applies when UIA could not verify the focused field this round
+        // (uiaUnverified): the candidates then come from the raw compatibility buffer.
+        var terminalForeground = SelectionReader.IsTerminalLikeWindow(GetForegroundWindow());
+        var networkBlocked = terminalForeground || uiaUnverified;
 
         var aiAttempted = false;
-        if (!terminalForeground && AiConfigured && !cancellationToken.IsCancellationRequested)
+        if (!networkBlocked && AiConfigured && !cancellationToken.IsCancellationRequested)
         {
             aiAttempted = true;
             SetStatus("本地未收录，正在用 AI 翻译…");
@@ -1245,7 +1270,7 @@ public partial class MainWindow : Window
         var compatAvailable = _settings.CompatibilityMode && _typingBuffer.Length > 0;
         var onlineAttempted = false;
         string? error = null;
-        if (!terminalForeground && _settings.AllowOnlineLookup && DateTime.UtcNow >= _onlineBackoffUntilUtc)
+        if (!networkBlocked && _settings.AllowOnlineLookup && DateTime.UtcNow >= _onlineBackoffUntilUtc)
         {
             onlineAttempted = true;
             var responses = await Task.WhenAll(candidates.Select(candidate =>
@@ -1277,14 +1302,16 @@ public partial class MainWindow : Window
                 return;
             }
         }
-        else if (!terminalForeground && _settings.AllowOnlineLookup)
+        else if (!networkBlocked && _settings.AllowOnlineLookup)
         {
             error = "在线翻译暂不可用（近期失败过，稍后自动重试）。";
         }
 
         var message = error ?? (terminalForeground
             ? "终端窗口中仅使用本地词库（不向网络发送终端输入）。"
-            : aiAttempted
+            : uiaUnverified
+                ? "当前窗口的输入框无法验证安全性：仅用本地词库（不联网）。"
+                : aiAttempted
                 ? "AI 翻译未成功；本地词库未收录该词条。"
                 : _settings.AllowOnlineLookup
                     ? "本地词库未收录该词条。"
@@ -1299,6 +1326,8 @@ public partial class MainWindow : Window
         _typingFallbackTimer.Stop();
         var candidates = _pendingTypingFallback;
         _pendingTypingFallback = null;
+        var uiaUnverified = _pendingTypingFallbackUiaUnverified;
+        _pendingTypingFallbackUiaUnverified = false;
         if (candidates is null || !_settings.TypingLookupEnabled)
         {
             return;
@@ -1318,7 +1347,7 @@ public partial class MainWindow : Window
         var cancellationToken = _lookupCancellation?.Token ?? CancellationToken.None;
         try
         {
-            await RunTypingFallbackAsync(candidates, cancellationToken);
+            await RunTypingFallbackAsync(candidates, cancellationToken, uiaUnverified);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1372,6 +1401,10 @@ public partial class MainWindow : Window
 
     private void OnLookupWindowCloseRequested()
     {
+        // ✕ must also cancel any in-flight request (AI stream, OCR, online lookup):
+        // otherwise the flow completes a moment later and re-shows the popup the user
+        // just closed.
+        CancelLookup();
         // ✕ must end the typing session, otherwise the next keystroke would pop the
         // box right back; for the other triggers a plain hide is enough.
         if (_popupTrigger == PopupTrigger.Typing)
@@ -1761,6 +1794,12 @@ public partial class MainWindow : Window
         var ocr = await Task.Run(() => ScreenOcr.CaptureAsync(x, y, width, height));
         captureStopwatch.Stop();
         DiagnosticsLog.Write("SHOT", $"capture done in {captureStopwatch.ElapsedMilliseconds} ms");
+        if (cancellationToken.IsCancellationRequested)
+        {
+            // The user closed the popup while the capture was running; do not re-show it.
+            return;
+        }
+
         if (!ocr.Ok || string.IsNullOrWhiteSpace(ocr.Text))
         {
             DiagnosticsLog.Write("SHOT", $"ocr fail: {ocr.Message}");
@@ -2170,6 +2209,13 @@ public partial class MainWindow : Window
         _settings.AiBaseUrl = AiBaseUrlTextBox.Text.Trim();
         _settings.AiModel = AiModelTextBox.Text.Trim();
         _settings.AiApiKey = AiApiKeyBox.Password.Trim();
+        if (_settings.AiApiKey.Length > 0)
+        {
+            // A freshly typed key replaces any preserved undecryptable blob.
+            _settings.ApiKeyDecryptFailed = false;
+            _settings.PreservedApiKeyBlob = null;
+        }
+
         UpdateHomeSummary();
         SaveSettingsOrReport();
     }
@@ -2233,7 +2279,11 @@ public partial class MainWindow : Window
         if (_translationCache.TryGet(query, direction, out var cached) && !string.IsNullOrWhiteSpace(cached))
         {
             DiagnosticsLog.Write("AI", $"cache hit len={cached.Length}");
-            ShowPopupEntries([new DictionaryEntry(query, direction, [cached], "AI 翻译（缓存）")], trigger);
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                ShowPopupEntries([new DictionaryEntry(query, direction, [cached], "AI 翻译（缓存）")], trigger);
+            }
+
             return true;
         }
 
@@ -2281,6 +2331,12 @@ public partial class MainWindow : Window
         if (text.Length == 0)
         {
             DiagnosticsLog.Write("AI", "empty result");
+            return false;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            // The user closed the popup while the stream was finishing; do not re-show it.
             return false;
         }
 
@@ -2952,6 +3008,11 @@ public partial class MainWindow : Window
             saved = false;
             DiagnosticsLog.Write("SET", $"save failed: {exception.GetType().Name} {exception.Message}");
             SetStatus($"保存设置失败：{exception.Message}");
+        }
+
+        if (saved && SettingsStore.LastSaveKeyProtectionFailed)
+        {
+            SetStatus("AI Key 加密失败：密钥未写入磁盘（本次运行仍可正常使用）。");
         }
 
         // Settings interactions can stall the UI thread long enough for Windows to

@@ -1,6 +1,7 @@
 using System.IO;
 using System.Security;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Win32;
 using Qwaacty.Core;
 
@@ -38,6 +39,17 @@ internal sealed class AppSettings
     public string SelectionAutoToggleHotkey { get; set; } = "Ctrl+Alt+Shift+A";
     public bool ProfessionalModeEnabled { get; set; }
     public string ProfessionalHotkey { get; set; } = "Ctrl+Alt+Shift+P";
+
+    /// <summary>Not persisted. True when the stored DPAPI blob could not be decrypted
+    /// (different user/machine or corrupted); the original blob is kept so a later save
+    /// cannot destroy the only recoverable copy of the key.</summary>
+    [JsonIgnore]
+    public bool ApiKeyDecryptFailed { get; set; }
+
+    /// <summary>Not persisted: the original "dpapi:…" ciphertext preserved while
+    /// decryption fails.</summary>
+    [JsonIgnore]
+    public string? PreservedApiKeyBlob { get; set; }
 }
 
 internal static class SettingsStore
@@ -60,11 +72,32 @@ internal static class SettingsStore
 
         var json = File.ReadAllText(SettingsPath);
         var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+        // System.Text.Json does not enforce non-nullable reference types: a corrupted or
+        // hand-edited "AiApiKey": null used to throw an NRE here, crash the app while the
+        // window was being constructed, and leave the single-instance mutex behind —
+        // after which the app could never be started again.
+        var storedKey = settings.AiApiKey ?? string.Empty;
+        settings.AiApiKey = storedKey;
         // A pre-DPAPI build stored the key as plain text; rewrite right away so the
         // file stops containing a readable secret even before the next settings change.
         var plaintextKeyNeedsMigration =
-            settings.AiApiKey.Length > 0 && !settings.AiApiKey.StartsWith(Dpapi.Prefix, StringComparison.Ordinal);
-        settings.AiApiKey = Dpapi.Unprotect(settings.AiApiKey);
+            storedKey.Length > 0 && !storedKey.StartsWith(Dpapi.Prefix, StringComparison.Ordinal);
+        var unprotectedKey = Dpapi.Unprotect(storedKey);
+        if (unprotectedKey is null)
+        {
+            // Decryption failed (wrong user/machine or a corrupted blob): keep the
+            // ciphertext so a later save cannot overwrite it with an empty string and
+            // destroy the only recoverable copy of the key.
+            settings.ApiKeyDecryptFailed = true;
+            settings.PreservedApiKeyBlob = storedKey;
+            settings.AiApiKey = string.Empty;
+            DiagnosticsLog.Write("SETTINGS", $"ai key not decryptable (win32={Dpapi.LastError}); ciphertext preserved");
+        }
+        else
+        {
+            settings.AiApiKey = unprotectedKey;
+        }
+
         var needsRewrite = plaintextKeyNeedsMigration;
 
         // v1 stored the selection auto-trigger default as true; the feature now defaults to hotkey-only.
@@ -149,6 +182,16 @@ internal static class SettingsStore
         if (string.IsNullOrWhiteSpace(settings.PopupTextColor))
         {
             settings.PopupTextColor = "#FFD4D4D4";
+            needsRewrite = true;
+        }
+
+        if (settings.SettingsVersion > CurrentSettingsVersion)
+        {
+            // A newer (or reverted) build wrote a higher version number; clamp it so
+            // migrations keyed on this number still run for these users instead of being
+            // silently skipped.
+            DiagnosticsLog.Write("SETTINGS", $"settings version clamped {settings.SettingsVersion} -> {CurrentSettingsVersion}");
+            settings.SettingsVersion = CurrentSettingsVersion;
             needsRewrite = true;
         }
 
@@ -240,20 +283,80 @@ internal static class SettingsStore
 
             Directory.CreateDirectory(SettingsDirectory);
             File.Copy(legacyPath, SettingsPath);
+            // Pre-DPAPI builds kept the AI key in plain text inside the legacy folder
+            // (main file, .bak and .tmp). Purge them after the import so no readable
+            // copy of the key survives on disk.
+            PurgeLegacyFile(legacyPath);
+            PurgeLegacyFile(legacyPath + ".bak");
+            PurgeLegacyFile(legacyPath + ".tmp");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
         }
     }
 
+    /// <summary>Deletes a legacy settings file; when deletion is blocked the content is
+    /// at least blanked so a plain-text secret does not remain readable.</summary>
+    private static void PurgeLegacyFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            try
+            {
+                File.WriteAllText(path, "{}");
+            }
+            catch (Exception inner) when (inner is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
     private const int CurrentSettingsVersion = 13;
+
+    /// <summary>Set when the most recent Save could not encrypt the AI key; the plain
+    /// text was then NOT written to disk and callers surface this to the user.</summary>
+    public static bool LastSaveKeyProtectionFailed { get; private set; }
 
     public static void Save(AppSettings settings)
     {
         Directory.CreateDirectory(SettingsDirectory);
-        // Encrypt the API key before it touches disk (DPAPI, current-user scope).
-        var plainKey = settings.AiApiKey;
-        settings.AiApiKey = Dpapi.Protect(plainKey) ?? plainKey;
+        LastSaveKeyProtectionFailed = false;
+        var plainKey = settings.AiApiKey ?? string.Empty;
+        string encryptedKey;
+        if (plainKey.Length == 0)
+        {
+            // Preserve an undecryptable blob so a save triggered by an unrelated setting
+            // change cannot silently destroy the only recoverable copy of the key.
+            encryptedKey = settings.ApiKeyDecryptFailed && !string.IsNullOrEmpty(settings.PreservedApiKeyBlob)
+                ? settings.PreservedApiKeyBlob!
+                : string.Empty;
+        }
+        else
+        {
+            encryptedKey = Dpapi.Protect(plainKey) ?? string.Empty;
+            if (encryptedKey.Length == 0)
+            {
+                // Encryption failed: never persist the key in plain text. Keep it for
+                // this session only and report the failure to the caller.
+                LastSaveKeyProtectionFailed = true;
+                DiagnosticsLog.Write("SETTINGS", $"dpapi protect failed (win32={Dpapi.LastError}); ai key kept in memory only");
+            }
+            else
+            {
+                // A fresh, encryptable key replaces any preserved undecryptable blob.
+                settings.ApiKeyDecryptFailed = false;
+                settings.PreservedApiKeyBlob = null;
+            }
+        }
+
+        settings.AiApiKey = encryptedKey;
         string json;
         try
         {

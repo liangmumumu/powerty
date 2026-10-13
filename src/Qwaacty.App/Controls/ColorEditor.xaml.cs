@@ -116,6 +116,13 @@ public partial class ColorEditor : UserControl
     {
         color = default;
         var text = value.Trim();
+        if (text.Length == 5 && text[0] == '#')
+        {
+            // WPF's #ARGB shorthand: expand each nibble so validation and the preview
+            // stay consistent (#F00F -> #FF0000FF).
+            text = $"#{text[1]}{text[1]}{text[2]}{text[2]}{text[3]}{text[3]}{text[4]}{text[4]}";
+        }
+
         if (text.Length is not (4 or 7 or 9) || text[0] != '#')
         {
             return false;
