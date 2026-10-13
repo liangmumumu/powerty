@@ -55,7 +55,6 @@ if ($SelfContained) {
         --self-contained true `
         -p:PublishSingleFile=true `
         -p:IncludeNativeLibrariesForSelfExtract=true `
-        -p:EnableCompressionInSingleFile=true `
         --output $publishPath
     if ($LASTEXITCODE -ne 0) {
         throw "Self-contained publish failed. It needs the win-x64 runtime packs, which require a one-time download approval."
@@ -111,13 +110,16 @@ if ($Portable) {
         Remove-Item -LiteralPath $portablePath -Recurse -Force
     }
 
+    # Compression is deliberately OFF: EnableCompressionInSingleFile shrinks the file
+    # on disk (~74 MB vs ~179 MB) but makes the runtime decompress every managed
+    # assembly into private memory, adding roughly 150 MB of resident memory to an
+    # app that already keeps a large lexicon in RAM. Resident memory wins.
     & $dotnet publish (Join-Path $root "src\Qwaacty.App\Qwaacty.App.csproj") `
         --configuration Release `
         --runtime win-x64 `
         --self-contained true `
         -p:PublishSingleFile=true `
         -p:IncludeNativeLibrariesForSelfExtract=true `
-        -p:EnableCompressionInSingleFile=true `
         --output $portablePath
     if ($LASTEXITCODE -ne 0) {
         throw "Portable self-contained publish failed. It needs the win-x64 runtime packs (one-time download from the official NuGet feed)."
