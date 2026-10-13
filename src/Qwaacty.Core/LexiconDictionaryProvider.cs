@@ -36,13 +36,16 @@ public sealed class LexiconDictionaryProvider : ILocalDictionaryProvider
         }
 
         var reverseIndex = new Dictionary<string, List<ReverseCandidate>>(StringComparer.Ordinal);
+        // Reused across words: a fresh dictionary + set per word (432k of each) used to
+        // dominate the reverse-index build.
+        var hitsPerToken = new Dictionary<string, int>(StringComparer.Ordinal);
+        var fragmentTokens = new HashSet<string>(StringComparer.Ordinal);
         foreach (var word in words)
         {
             // Count, per token, how many definition fragments contain it: a word whose
             // definitions are largely about the token is a better translation than a
             // frequent word that merely mentions the token in one secondary sense.
-            var hitsPerToken = new Dictionary<string, int>(StringComparer.Ordinal);
-            var fragmentTokens = new HashSet<string>(StringComparer.Ordinal);
+            hitsPerToken.Clear();
             foreach (var definition in word.Definitions)
             {
                 fragmentTokens.Clear();
@@ -68,7 +71,7 @@ public sealed class LexiconDictionaryProvider : ILocalDictionaryProvider
                     reverseIndex[token] = keys = new List<ReverseCandidate>(2);
                 }
 
-                AddReverseCandidate(keys, word, hits, derived, byKey);
+                AddReverseCandidate(keys, word, hits, derived);
             }
         }
 
@@ -77,9 +80,20 @@ public sealed class LexiconDictionaryProvider : ILocalDictionaryProvider
 
     private const double DominantGlossShare = 0.4;
 
-    private static bool IsDerivedForm(Dictionary<string, LexiconWord> byKey, string key) =>
-        EnglishMorphology.Candidates(key).Any(candidate =>
-            !string.Equals(candidate, key, StringComparison.Ordinal) && byKey.ContainsKey(candidate));
+    private static bool IsDerivedForm(Dictionary<string, LexiconWord> byKey, string key)
+    {
+        // Manual loop instead of LINQ Any: this runs once per lexicon word (432k) and
+        // the delegate/enumerator allocations were measurable at startup.
+        foreach (var candidate in EnglishMorphology.Candidates(key))
+        {
+            if (!string.Equals(candidate, key, StringComparison.Ordinal) && byKey.ContainsKey(candidate))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Keeps the best <see cref="MaxReverseCandidatesPerToken"/> keys per gloss token.
@@ -89,39 +103,44 @@ public sealed class LexiconDictionaryProvider : ILocalDictionaryProvider
     /// this gloss (>= <see cref="DominantGlossShare"/>), then corpus frequency with a
     /// penalty for inflected forms, then length — so "覆盖" yields cover first instead
     /// of short obscure words (cap/cake/robe) or inflected forms (overwhelmed).
+    /// The rank is computed once per candidate and stored: the eviction scans used to
+    /// re-divide and dictionary-look-up every entry on every comparison.
     /// </summary>
-    private static void AddReverseCandidate(List<ReverseCandidate> keys, LexiconWord word, int hits, bool derived, Dictionary<string, LexiconWord> byKey)
+    private static void AddReverseCandidate(List<ReverseCandidate> keys, LexiconWord word, int hits, bool derived)
     {
-        if (keys.Any(candidate => string.Equals(candidate.Key, word.Key, StringComparison.OrdinalIgnoreCase)))
+        foreach (var existing in keys)
         {
-            return;
+            if (string.Equals(existing.Key, word.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
         }
 
+        var rank = ComputeRank(word, hits, derived);
         if (keys.Count < MaxReverseCandidatesPerToken)
         {
-            keys.Add(new ReverseCandidate(word.Key, hits, derived));
+            keys.Add(new ReverseCandidate(word.Key, rank));
             return;
         }
 
         var worstIndex = 0;
-        var worstRank = CandidateRank(byKey, keys[0]);
+        var worstRank = keys[0].Rank;
         for (var index = 1; index < keys.Count; index++)
         {
-            var rank = CandidateRank(byKey, keys[index]);
-            if (rank.CompareTo(worstRank) > 0)
+            if (keys[index].Rank.CompareTo(worstRank) > 0)
             {
-                worstRank = rank;
+                worstRank = keys[index].Rank;
                 worstIndex = index;
             }
         }
 
-        if (CandidateRank(word, hits, derived).CompareTo(worstRank) < 0)
+        if (rank.CompareTo(worstRank) < 0)
         {
-            keys[worstIndex] = new ReverseCandidate(word.Key, hits, derived);
+            keys[worstIndex] = new ReverseCandidate(word.Key, rank);
         }
     }
 
-    private static (int Phrase, int WeakShare, int FrequencyUnknown, long EffectiveFrequency, int Length) CandidateRank(
+    private static (int Phrase, int WeakShare, int FrequencyUnknown, long EffectiveFrequency, int Length) ComputeRank(
         LexiconWord word,
         int hits,
         bool derived)
@@ -134,12 +153,9 @@ public sealed class LexiconDictionaryProvider : ILocalDictionaryProvider
             word.Name.Length);
     }
 
-    private static (int Phrase, int WeakShare, int FrequencyUnknown, long EffectiveFrequency, int Length) CandidateRank(
-        Dictionary<string, LexiconWord> byKey,
-        ReverseCandidate candidate) =>
-        CandidateRank(byKey[candidate.Key], candidate.Hits, candidate.Derived);
-
-    private readonly record struct ReverseCandidate(string Key, int Hits, bool Derived);
+    private readonly record struct ReverseCandidate(
+        string Key,
+        (int Phrase, int WeakShare, int FrequencyUnknown, long EffectiveFrequency, int Length) Rank);
 
     public static bool TryLoad(string path, out LexiconDictionaryProvider? provider, out string? error)
     {
@@ -192,11 +208,7 @@ public sealed class LexiconDictionaryProvider : ILocalDictionaryProvider
 
         var entries = keys
             .Select(candidate => (Word: _words[candidate.Key], Candidate: candidate))
-            .OrderBy(item => item.Word.Name.Contains(' ') ? 1 : 0)
-            .ThenBy(item => (double)item.Candidate.Hits / Math.Max(1, item.Word.Definitions.Count) >= DominantGlossShare ? 0 : 1)
-            .ThenBy(item => item.Word.Frequency > 0 ? 0 : 1)
-            .ThenBy(item => item.Candidate.Derived ? (long)item.Word.Frequency * 4 : item.Word.Frequency)
-            .ThenBy(item => item.Word.Name.Length)
+            .OrderBy(item => item.Candidate.Rank)
             .ThenBy(item => item.Word.Key, StringComparer.OrdinalIgnoreCase)
             .Take(MaxReverseSuggestions)
             .Select(item => ToEntry(item.Word, direction))

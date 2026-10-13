@@ -55,6 +55,7 @@ if ($SelfContained) {
         --self-contained true `
         -p:PublishSingleFile=true `
         -p:IncludeNativeLibrariesForSelfExtract=true `
+        -p:EnableCompressionInSingleFile=true `
         --output $publishPath
     if ($LASTEXITCODE -ne 0) {
         throw "Self-contained publish failed. It needs the win-x64 runtime packs, which require a one-time download approval."
@@ -116,6 +117,7 @@ if ($Portable) {
         --self-contained true `
         -p:PublishSingleFile=true `
         -p:IncludeNativeLibrariesForSelfExtract=true `
+        -p:EnableCompressionInSingleFile=true `
         --output $portablePath
     if ($LASTEXITCODE -ne 0) {
         throw "Portable self-contained publish failed. It needs the win-x64 runtime packs (one-time download from the official NuGet feed)."
