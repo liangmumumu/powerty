@@ -1,6 +1,7 @@
 <Window x:Class="Powerty.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Powerty.App.Controls"
         Title="Powerty" Height="760" Width="920"
         MinHeight="620" MinWidth="760"
         WindowStartupLocation="CenterScreen"
@@ -210,20 +211,19 @@
                             <TextBox x:Name="PopupHeightTextBox" Width="90" Style="{StaticResource VsTextBox}"
                                      ToolTip="内容高度（40–1000）" />
                         </DockPanel>
-                        <DockPanel Margin="0,10,0,0">
-                            <TextBlock DockPanel.Dock="Left" Width="72" VerticalAlignment="Center"
-                                       Foreground="{StaticResource VsDimTextBrush}" FontSize="12.5" Text="背景颜色" />
-                            <Button DockPanel.Dock="Right" Width="76" Margin="8,0,0,0"
+                        <TextBlock Margin="0,14,0,0" FontSize="12.5" Foreground="{StaticResource VsDimTextBrush}"
+                                   Text="背景颜色（拖动三原色滑块即时预览）" />
+                        <local:ColorEditor x:Name="BackgroundColorEditor" Margin="0,6,0,0" />
+                        <TextBlock Margin="0,14,0,0" FontSize="12.5" Foreground="{StaticResource VsDimTextBrush}"
+                                   Text="正文颜色" />
+                        <local:ColorEditor x:Name="TextColorEditor" Margin="0,6,0,0" />
+                        <DockPanel Margin="0,12,0,0">
+                            <Button DockPanel.Dock="Right" Width="96" Margin="10,0,0,0"
                                     Style="{StaticResource VsButton}" Content="应用配色"
                                     Click="ApplyPopupColorsButton_OnClick" />
-                            <TextBox x:Name="PopupBackgroundColorTextBox" Style="{StaticResource VsTextBox}"
-                                     ToolTip="颜色格式：#RRGGBB 或 #AARRGGBB" />
-                        </DockPanel>
-                        <DockPanel Margin="0,8,0,0">
-                            <TextBlock DockPanel.Dock="Left" Width="72" VerticalAlignment="Center"
-                                       Foreground="{StaticResource VsDimTextBrush}" FontSize="12.5" Text="正文颜色" />
-                            <TextBox x:Name="PopupTextColorTextBox" Style="{StaticResource VsTextBox}"
-                                     ToolTip="颜色格式：#RRGGBB 或 #AARRGGBB" />
+                            <TextBlock VerticalAlignment="Center" FontSize="11.5" TextWrapping="Wrap"
+                                       Foreground="{StaticResource VsDimTextBrush}"
+                                       Text="滑块即时预览；「应用配色」立即保存并生效" />
                         </DockPanel>
                     </StackPanel>
                 </Border>
@@ -276,7 +276,7 @@
                                    Text="AI 翻译（可选，云端大模型）" />
                         <TextBlock Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource VsDimTextBrush}"
                                    TextWrapping="Wrap"
-                                   Text="本地词库未收录的单词、短语与划词句子交给 AI 翻译（OpenAI 兼容接口，支持 DeepSeek/通义千问/Kimi/豆包等）。只发送当前查询片段，不发送整句上下文；API Key 仅保存在本机设置文件中。" />
+                                   Text="本地词库未收录的单词、短语与划词句子交给 AI 翻译（OpenAI 兼容接口，支持 DeepSeek/通义千问/Kimi/豆包等）。只发送当前查询片段（开启「AI 增强翻译」时附带选区前后少量语境，最多 360 字符）；API Key 经 Windows 加密后仅保存在本机。" />
                         <CheckBox x:Name="AiEnabledCheckBox" Margin="0,12,0,0"
                                   Style="{StaticResource VsCheckBox}"
                                   Content="启用 AI 翻译（本地未命中时优先使用 AI）"

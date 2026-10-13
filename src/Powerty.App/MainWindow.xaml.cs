@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _popupAutoCloseTimer;
     private readonly DispatcherTimer _typingFallbackTimer;
     private readonly DispatcherTimer _hookWatchdogTimer;
+    private readonly DispatcherTimer _appearanceSaveTimer;
     private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
     private readonly HttpClient _aiHttpClient = new() { Timeout = TimeSpan.FromSeconds(30) };
     private readonly OpenAiCompatibleTranslator _aiTranslator;
@@ -155,6 +156,15 @@ public partial class MainWindow : Window
         _typingFallbackTimer.Tick += TypingFallbackTimer_OnTick;
         _hookWatchdogTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
         _hookWatchdogTimer.Tick += (_, _) => RefreshMonitors(force: true);
+        // Debounce for appearance sliders: dragging fires dozens of value changes and
+        // writing settings.json on each one is both slow and wears the disk. The UI and
+        // popup preview still update on every tick; only the file write is coalesced.
+        _appearanceSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+        _appearanceSaveTimer.Tick += (_, _) =>
+        {
+            _appearanceSaveTimer.Stop();
+            SaveSettingsOrReport();
+        };
         _inputMonitor.InputActivity += InputMonitor_OnInputActivity;
         _inputMonitor.CharacterTyped += OnCharacterTyped;
         _inputMonitor.BackspaceTyped += OnBackspaceTyped;
@@ -236,8 +246,14 @@ public partial class MainWindow : Window
         ScreenshotHotkeyTextBox.Text = _settings.ScreenshotHotkey;
         PopupWidthTextBox.Text = _settings.PopupWidth.ToString("F0");
         PopupHeightTextBox.Text = _settings.PopupMaxHeight.ToString("F0");
-        PopupBackgroundColorTextBox.Text = _settings.PopupBackgroundColor;
-        PopupTextColorTextBox.Text = _settings.PopupTextColor;
+        BackgroundColorEditor.SetColor(TryParsePopupColor(_settings.PopupBackgroundColor, out var background)
+            ? background
+            : Color.FromRgb(0x1E, 0x1E, 0x1E));
+        TextColorEditor.SetColor(TryParsePopupColor(_settings.PopupTextColor, out var textColor)
+            ? textColor
+            : Color.FromRgb(0xD4, 0xD4, 0xD4));
+        BackgroundColorEditor.ColorChanged += OnBackgroundColorChanged;
+        TextColorEditor.ColorChanged += OnTextColorChanged;
         UpdateHomeSummary();
 
         FontSizeSlider.Value = Math.Clamp(_settings.PopupFontSize, FontSizeSlider.Minimum, FontSizeSlider.Maximum);
@@ -2380,7 +2396,7 @@ public partial class MainWindow : Window
         _settings.PopupFontSize = FontSizeSlider.Value;
         UpdateAppearanceLabels();
         ApplyPopupAppearance();
-        SaveSettingsOrReport();
+        ScheduleAppearanceSave();
     }
 
     private void OpacitySlider_OnValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -2393,7 +2409,7 @@ public partial class MainWindow : Window
         _settings.PopupOpacity = OpacitySlider.Value;
         UpdateAppearanceLabels();
         ApplyPopupAppearance();
-        SaveSettingsOrReport();
+        ScheduleAppearanceSave();
     }
 
     private void ApplyPopupLayoutButton_OnClick(object sender, RoutedEventArgs e)
@@ -2416,19 +2432,44 @@ public partial class MainWindow : Window
 
     private void ApplyPopupColorsButton_OnClick(object sender, RoutedEventArgs e)
     {
-        if (!TryParsePopupColor(PopupBackgroundColorTextBox.Text, out var background) ||
-            !TryParsePopupColor(PopupTextColorTextBox.Text, out var text))
+        _settings.PopupBackgroundColor = BackgroundColorEditor.SelectedColor.ToString();
+        _settings.PopupTextColor = TextColorEditor.SelectedColor.ToString();
+        _appearanceSaveTimer.Stop();
+        ApplyPopupAppearance();
+        var saved = SaveSettingsOrReport();
+        SetStatus(saved ? "浮窗配色已应用。" : "配色已预览，但设置保存失败：本次配色仅在当前运行内有效。");
+    }
+
+    private void OnBackgroundColorChanged(object? sender, Color color)
+    {
+        if (_loadingSettings)
         {
-            SetStatus("颜色格式无效，请使用 #RRGGBB 或 #AARRGGBB。");
             return;
         }
 
-        _settings.PopupBackgroundColor = background.ToString();
-        _settings.PopupTextColor = text.ToString();
-        PopupBackgroundColorTextBox.Text = _settings.PopupBackgroundColor;
-        PopupTextColorTextBox.Text = _settings.PopupTextColor;
+        _settings.PopupBackgroundColor = color.ToString();
         ApplyPopupAppearance();
-        SaveSettingsOrReport();
+        ScheduleAppearanceSave();
+    }
+
+    private void OnTextColorChanged(object? sender, Color color)
+    {
+        if (_loadingSettings)
+        {
+            return;
+        }
+
+        _settings.PopupTextColor = color.ToString();
+        ApplyPopupAppearance();
+        ScheduleAppearanceSave();
+    }
+
+    // Coalesces frequent appearance changes (slider drags) into a single settings write;
+    // OnClosed flushes any pending change so nothing is lost when the app exits quickly.
+    private void ScheduleAppearanceSave()
+    {
+        _appearanceSaveTimer.Stop();
+        _appearanceSaveTimer.Start();
     }
 
     private static bool TryParsePopupColor(string value, out Color color)
@@ -2617,6 +2658,14 @@ public partial class MainWindow : Window
         _typingFallbackTimer.Stop();
         _popupAutoCloseTimer.Stop();
         _hookWatchdogTimer.Stop();
+        var appearanceSavePending = _appearanceSaveTimer.IsEnabled;
+        _appearanceSaveTimer.Stop();
+        if (appearanceSavePending)
+        {
+            // Flush an in-flight appearance change so a quick exit cannot lose it.
+            SaveSettingsOrReport();
+        }
+
         CancelLookup();
         _inputMonitor.InputActivity -= InputMonitor_OnInputActivity;
         _inputMonitor.CharacterTyped -= OnCharacterTyped;
