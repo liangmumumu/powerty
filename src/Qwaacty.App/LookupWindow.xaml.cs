@@ -17,6 +17,15 @@ public partial class LookupWindow : Window
     private const string PhoneticFont = "Segoe UI";
     private const int MaxCollapsedChips = 8;
 
+    // 专业词库的 AI 增强文本用匀速“打字机”方式显现：默认约 20 字符/秒
+    // （约为 DeepSeek 深度思考流式速度的一半），积压过多时提速到 40 字符/秒；
+    // 窗口尺寸随显现节奏以小步（≤66ms 一次）平滑生长，不再随网络分片成块跳动。
+    private const double AiRevealCharsPerSecond = 20.0;
+    private const double AiRevealCatchUpCharsPerSecond = 40.0;
+    private const int AiRevealBacklogThreshold = 240;
+    private const int AiRevealTickMs = 30;
+    private const long AiRevealFitIntervalMs = 66;
+
     private static readonly Brush WordBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF));
     private static readonly Brush PhoneticBrush = new SolidColorBrush(Color.FromRgb(0x9C, 0xDC, 0xFE));
     private static readonly Brush PartOfSpeechBrush = new SolidColorBrush(Color.FromRgb(0xD7, 0xBA, 0x7D));
@@ -56,6 +65,14 @@ public partial class LookupWindow : Window
     private bool _aiCompactLayout;
     private bool _fitScheduled;
     private string _lastFitDetail = "fit=?";
+    private DispatcherTimer? _aiRevealTimer;
+    private string _aiTargetText = string.Empty;
+    private int _aiRevealedChars;
+    private double _aiRevealCarry;
+    private bool _aiStreamCompleted;
+    private long _aiLastFitTick;
+    private long _aiRevealFirstTick;
+    private bool _aiRevealDoneLogged;
 
     private static readonly Brush AiErrorBrush = new SolidColorBrush(Color.FromRgb(0xF4, 0x87, 0x71));
 
@@ -372,6 +389,7 @@ public partial class LookupWindow : Window
         ProfessionalLinkText.Visibility = _professionalLinkUrl is null ? Visibility.Collapsed : Visibility.Visible;
         ProfessionalAiText.Visibility = Visibility.Collapsed;
         ProfessionalAiText.Text = string.Empty;
+        ResetAiReveal();
         ResetAiEnhanceButton();
         SetProfessionalMode(true);
         var wasVisible = IsVisible;
@@ -390,18 +408,33 @@ public partial class LookupWindow : Window
         LogSlowShow("professional", stopwatch);
     }
 
+    /// <summary>Feeds the newest AI text into the typewriter. The buffered text is
+    /// revealed at a steady character cadence instead of being swapped in wholesale,
+    /// so the popup grows smoothly while the answer streams in.</summary>
     public void ShowAiEnhanceText(string text)
     {
-        ProfessionalAiText.Foreground = _textBrush;
-        ProfessionalAiText.Text = text;
-        ProfessionalAiText.Visibility = Visibility.Visible;
-        UpdateLayout();
-        ContentScroll.ScrollToEnd();
-        ScheduleFitToContent();
+        if (!_professionalMode)
+        {
+            return;
+        }
+
+        _aiTargetText = text;
+        if (_aiRevealFirstTick == 0)
+        {
+            _aiRevealFirstTick = Environment.TickCount64;
+        }
+
+        EnsureAiRevealTimer();
+        RevealAiText();
     }
 
     public void ShowAiEnhanceError(string message)
     {
+        StopAiRevealTimer();
+        _aiTargetText = string.Empty;
+        _aiRevealedChars = 0;
+        _aiRevealCarry = 0;
+        _aiStreamCompleted = true;
         ProfessionalAiText.Foreground = AiErrorBrush;
         ProfessionalAiText.Text = message;
         ProfessionalAiText.Visibility = Visibility.Visible;
@@ -411,8 +444,89 @@ public partial class LookupWindow : Window
 
     public void CompleteAiEnhance()
     {
+        _aiStreamCompleted = true;
+        if (_aiRevealedChars >= _aiTargetText.Length)
+        {
+            StopAiRevealTimer();
+        }
+        else
+        {
+            // Keep draining the buffered tail at the same steady cadence.
+            EnsureAiRevealTimer();
+        }
+
         AiEnhanceButton.IsEnabled = true;
         AiEnhanceButton.Content = "✦ 重新生成 AI 增强（翻译 + 解释）";
+    }
+
+    private void ResetAiReveal()
+    {
+        StopAiRevealTimer();
+        _aiTargetText = string.Empty;
+        _aiRevealedChars = 0;
+        _aiRevealCarry = 0;
+        _aiStreamCompleted = false;
+        _aiRevealFirstTick = 0;
+        _aiRevealDoneLogged = false;
+    }
+
+    private void EnsureAiRevealTimer()
+    {
+        if (_aiRevealTimer is null)
+        {
+            _aiRevealTimer = new DispatcherTimer(DispatcherPriority.Render)
+            {
+                Interval = TimeSpan.FromMilliseconds(AiRevealTickMs)
+            };
+            _aiRevealTimer.Tick += (_, _) => RevealAiText();
+        }
+
+        if (!_aiRevealTimer.IsEnabled)
+        {
+            _aiRevealTimer.Start();
+        }
+    }
+
+    private void StopAiRevealTimer() => _aiRevealTimer?.Stop();
+
+    /// <summary>Reveals one slice of the buffered AI text; the popup is refit at most
+    /// every AiRevealFitIntervalMs so the window grows in small, smooth steps.</summary>
+    private void RevealAiText()
+    {
+        var targetLength = _aiTargetText.Length;
+        if (_aiRevealedChars < targetLength)
+        {
+            var backlog = targetLength - _aiRevealedChars;
+            var charsPerSecond = backlog > AiRevealBacklogThreshold ? AiRevealCatchUpCharsPerSecond : AiRevealCharsPerSecond;
+            _aiRevealCarry += charsPerSecond * AiRevealTickMs / 1000.0;
+            var step = (int)_aiRevealCarry;
+            if (step > 0)
+            {
+                _aiRevealCarry -= step;
+                _aiRevealedChars = Math.Min(targetLength, _aiRevealedChars + step);
+                ProfessionalAiText.Foreground = _textBrush;
+                ProfessionalAiText.Text = _aiTargetText[.._aiRevealedChars];
+                ProfessionalAiText.Visibility = Visibility.Visible;
+                ContentScroll.ScrollToEnd();
+
+                var now = Environment.TickCount64;
+                if (now - _aiLastFitTick >= AiRevealFitIntervalMs)
+                {
+                    _aiLastFitTick = now;
+                    ScheduleFitToContent();
+                }
+            }
+        }
+
+        if (_aiRevealedChars >= targetLength)
+        {
+            StopAiRevealTimer();
+            if (_aiStreamCompleted && _aiRevealFirstTick != 0 && !_aiRevealDoneLogged)
+            {
+                _aiRevealDoneLogged = true;
+                DiagnosticsLog.Write("PRO", $"ai reveal done len={_aiTargetText.Length} in {Environment.TickCount64 - _aiRevealFirstTick} ms");
+            }
+        }
     }
 
     private void ResetAiEnhanceButton()
@@ -428,11 +542,13 @@ public partial class LookupWindow : Window
         if (!on)
         {
             _professionalLinkUrl = null;
+            ResetAiReveal();
         }
     }
 
     private void AiEnhanceButton_OnClick(object sender, RoutedEventArgs e)
     {
+        ResetAiReveal();
         AiEnhanceButton.IsEnabled = false;
         AiEnhanceButton.Content = "正在生成…";
         ProfessionalAiText.Foreground = _textBrush;
