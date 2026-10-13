@@ -36,8 +36,6 @@ internal sealed class AppSettings
     public string ScreenshotHotkey { get; set; } = "Ctrl+Alt+Shift+X";
     public string SelectionToggleHotkey { get; set; } = "Ctrl+Alt+Shift+S";
     public string SelectionAutoToggleHotkey { get; set; } = "Ctrl+Alt+Shift+A";
-    public bool InputTranslateEnabled { get; set; } = true;
-    public string InputTranslateHotkey { get; set; } = "Ctrl+Alt+Z";
 }
 
 internal static class SettingsStore
@@ -124,24 +122,6 @@ internal static class SettingsStore
         {
             settings.PopupWidth = 760;
             settings.PopupMaxHeight = 84;
-            needsRewrite = true;
-        }
-
-        if (settings.SettingsVersion < 12)
-        {
-            // 0.13.0: the new input-translation module takes over Ctrl+Alt+Z; users who
-            // had assigned it to the screenshot module get a fresh, conflict-free chord.
-            if (string.Equals(settings.ScreenshotHotkey, "Ctrl+Alt+Z", StringComparison.OrdinalIgnoreCase))
-            {
-                settings.ScreenshotHotkey = "Ctrl+Alt+Space";
-            }
-
-            needsRewrite = true;
-        }
-
-        if (string.IsNullOrWhiteSpace(settings.InputTranslateHotkey))
-        {
-            settings.InputTranslateHotkey = "Ctrl+Alt+Z";
             needsRewrite = true;
         }
 
@@ -251,7 +231,7 @@ internal static class SettingsStore
         }
     }
 
-    private const int CurrentSettingsVersion = 12;
+    private const int CurrentSettingsVersion = 11;
 
     public static void Save(AppSettings settings)
     {

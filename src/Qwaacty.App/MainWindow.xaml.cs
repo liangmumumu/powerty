@@ -21,7 +21,6 @@ public partial class MainWindow : Window
     private const int SelectionToggleHotkeyId = 7144;
     private const int ScreenshotHotkeyId = 7145;
     private const int SelectionAutoToggleHotkeyId = 7146;
-    private const int InputTranslateHotkeyId = 7147;
     private const int TypingReadTimeoutMilliseconds = 1500;
     private const int TypingFallbackStableMilliseconds = 650;
     private const int TypingTranslatePauseMilliseconds = 500;
@@ -36,8 +35,6 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _typingFallbackTimer;
     private readonly DispatcherTimer _hookWatchdogTimer;
     private readonly DispatcherTimer _appearanceSaveTimer;
-    private readonly DispatcherTimer _inputTranslateTimer;
-    private readonly DispatcherTimer _translatePreviewHideTimer;
     private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
     private readonly HttpClient _aiHttpClient = new() { Timeout = TimeSpan.FromSeconds(30) };
     private readonly OpenAiCompatibleTranslator _aiTranslator;
@@ -50,7 +47,6 @@ public partial class MainWindow : Window
     private WindowsHotkey? _selectionToggleHotkey;
     private WindowsHotkey? _selectionAutoToggleHotkey;
     private WindowsHotkey? _screenshotHotkey;
-    private WindowsHotkey? _inputTranslateHotkey;
     private ScreenshotOverlayWindow? _screenshotOverlay;
     private WinForms.NotifyIcon? _trayIcon;
     private WinForms.ToolStripMenuItem? _typingTrayItem;
@@ -76,17 +72,6 @@ public partial class MainWindow : Window
         Environment.GetEnvironmentVariable("QWAACTY_TRACE_SELECTION") == "1";
     private DateTime _lastHookRefreshUtc = DateTime.MinValue;
     private long _screenshotSuppressGesturesUntilTicks;
-    private TranslatePreviewWindow? _translatePreview;
-    private int _roundAnchorLength = -1;
-    private bool _roundAnchorStale = true;
-    private bool _roundAnchorReadInFlight;
-    private IntPtr _roundAnchorWindow;
-    private bool _inputTranslateBusy;
-    private string? _previewSegment;
-    private string? _previewTranslation;
-    private long _lastInputTranslateInjectTicks;
-    private bool _inputTranslateHinted;
-    private CancellationTokenSource? _inputTranslateCancellation;
     private List<QueryCandidate>? _pendingTypingFallback;
     private Rect? _typingAnchor;
     private Rect? _typingInputBounds;
@@ -149,11 +134,6 @@ public partial class MainWindow : Window
             _settings.SelectionAutoToggleHotkey = "Ctrl+Alt+Shift+A";
         }
 
-        if (string.IsNullOrWhiteSpace(_settings.InputTranslateHotkey))
-        {
-            _settings.InputTranslateHotkey = "Ctrl+Alt+Z";
-        }
-
         try
         {
             StartupRegistration.MigrateLegacyValue();
@@ -186,27 +166,12 @@ public partial class MainWindow : Window
             _appearanceSaveTimer.Stop();
             SaveSettingsOrReport();
         };
-        // Input-translation preview: fires after a typing pause; a second one-shot timer
-        // hides a preview the user has walked away from.
-        _inputTranslateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
-        _inputTranslateTimer.Tick += InputTranslateTimer_OnTick;
-        _translatePreviewHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(25) };
-        _translatePreviewHideTimer.Tick += (_, _) =>
-        {
-            _translatePreviewHideTimer.Stop();
-            _translatePreview?.HidePreview();
-        };
         _inputMonitor.InputActivity += InputMonitor_OnInputActivity;
         _inputMonitor.CharacterTyped += OnCharacterTyped;
         _inputMonitor.BackspaceTyped += OnBackspaceTyped;
-        _inputMonitor.ContextResetRequested += () => DispatchInput(() =>
-        {
-            _typingBuffer.Clear();
-            OnInputTranslateContextReset();
-        });
+        _inputMonitor.ContextResetRequested += () => _typingBuffer.Clear();
         _inputMonitor.ForegroundChanged += () => DispatchInput(() =>
         {
-            OnInputTranslateBoundary();
             if (_popupTrigger != PopupTrigger.Typing)
             {
                 return;
@@ -221,11 +186,7 @@ public partial class MainWindow : Window
                 ClearTypingSession(hidePopup: true);
             }
         });
-        _inputMonitor.LineTerminated += () => DispatchInput(() =>
-        {
-            ClearTypingSession(hidePopup: true);
-            OnInputTranslateBoundary();
-        });
+        _inputMonitor.LineTerminated += () => DispatchInput(() => ClearTypingSession(hidePopup: true));
         _mouseMonitor.PointerPressed += () => DispatchInput(OnMousePointerPressed);
         _mouseMonitor.DragSelectCompleted += (start, end, hookTicks) => DispatchInput(() => OnDragSelectCompleted(start, end, hookTicks));
         _lookupWindow.SizeAdjusted += OnLookupWindowSizeAdjusted;
@@ -234,8 +195,6 @@ public partial class MainWindow : Window
         // which keeps the UI thread from stalling long enough for Windows to drop the
         // low-level mouse hook.
         new WindowInteropHelper(_lookupWindow).EnsureHandle();
-        _translatePreview = new TranslatePreviewWindow();
-        new WindowInteropHelper(_translatePreview).EnsureHandle();
         Loaded += OnWindowLoaded;
 
         InitializeControls();
@@ -286,8 +245,6 @@ public partial class MainWindow : Window
         SelectionToggleHotkeyTextBox.Text = _settings.SelectionToggleHotkey;
         SelectionAutoToggleHotkeyTextBox.Text = _settings.SelectionAutoToggleHotkey;
         ScreenshotHotkeyTextBox.Text = _settings.ScreenshotHotkey;
-        InputTranslateCheckBox.IsChecked = _settings.InputTranslateEnabled;
-        InputTranslateHotkeyTextBox.Text = _settings.InputTranslateHotkey;
         PopupWidthTextBox.Text = _settings.PopupWidth.ToString("F0");
         PopupHeightTextBox.Text = _settings.PopupMaxHeight.ToString("F0");
         BackgroundColorEditor.SetColor(TryParsePopupColor(_settings.PopupBackgroundColor, out var background)
@@ -350,7 +307,6 @@ public partial class MainWindow : Window
         _selectionToggleHotkey = new WindowsHotkey(handle, SelectionToggleHotkeyId);
         _selectionAutoToggleHotkey = new WindowsHotkey(handle, SelectionAutoToggleHotkeyId);
         _screenshotHotkey = new WindowsHotkey(handle, ScreenshotHotkeyId);
-        _inputTranslateHotkey = new WindowsHotkey(handle, InputTranslateHotkeyId);
         try
         {
             _typingHotkey.Register(_settings.Hotkey);
@@ -404,17 +360,6 @@ public partial class MainWindow : Window
         {
             _pendingHotkeyError = $"截图翻译快捷键（{_settings.ScreenshotHotkey}）注册失败：{exception.Message}";
             DiagnosticsLog.Write("HOTKEY", $"screenshot={_settings.ScreenshotHotkey} FAIL {exception.Message}");
-        }
-
-        try
-        {
-            _inputTranslateHotkey.Register(_settings.InputTranslateHotkey);
-            DiagnosticsLog.Write("HOTKEY", $"inputTranslate={_settings.InputTranslateHotkey} ok");
-        }
-        catch (Exception exception) when (exception is Win32Exception or FormatException)
-        {
-            _pendingHotkeyError = $"输入转译快捷键（{_settings.InputTranslateHotkey}）注册失败：{exception.Message}";
-            DiagnosticsLog.Write("HOTKEY", $"inputTranslate={_settings.InputTranslateHotkey} FAIL {exception.Message}");
         }
 
         if (_pendingHotkeyError is not null)
@@ -668,9 +613,6 @@ public partial class MainWindow : Window
         SelectionAutoHotkeyHint.Text = $"快捷键开关：{_settings.SelectionAutoToggleHotkey}";
         SelectionHotkeyHint.Text =
             $"翻译：{_settings.SelectionHotkey}    开关：{_settings.SelectionToggleHotkey}";
-        InputTranslateHint.Text = _settings.InputTranslateEnabled
-            ? $"快捷键：{_settings.InputTranslateHotkey} — 打字停顿后显示预翻译，按键把译文写回输入框（需配置 AI）"
-            : "已关闭（勾选后使用：打字停顿出预翻译，快捷键写回译文）";
         AiSummaryTextBlock.Text = !_settings.AiEnabled
             ? "AI 翻译已关闭"
             : AiConfigured
@@ -692,7 +634,7 @@ public partial class MainWindow : Window
 
     private void UpdateMonitoring()
     {
-        var needKeyboard = _settings.TypingLookupEnabled || _settings.InputTranslateEnabled;
+        var needKeyboard = _settings.TypingLookupEnabled;
         var needMouse = (_settings.TypingLookupEnabled && _settings.CompatibilityMode) ||
             (_settings.SelectionLookupEnabled && _settings.SelectionLookupAuto);
         try
@@ -730,7 +672,7 @@ public partial class MainWindow : Window
             SetStatus($"鼠标监测启动失败：{exception.Message}");
         }
 
-        _inputMonitor.CaptureCharacters = needKeyboard && (_settings.CompatibilityMode || _settings.InputTranslateEnabled);
+        _inputMonitor.CaptureCharacters = needKeyboard && _settings.CompatibilityMode;
         DiagnosticsLog.Write("MON",
             $"monitors keyboard={_inputMonitor.IsRunning}(want {needKeyboard}) mouse={_mouseMonitor.IsRunning}(want {needMouse})");
     }
@@ -744,7 +686,7 @@ public partial class MainWindow : Window
         }
 
         _lastHookRefreshUtc = now;
-        var needKeyboard = _settings.TypingLookupEnabled || _settings.InputTranslateEnabled;
+        var needKeyboard = _settings.TypingLookupEnabled;
         var needMouse = (_settings.TypingLookupEnabled && _settings.CompatibilityMode) ||
             (_settings.SelectionLookupEnabled && _settings.SelectionLookupAuto);
         try
@@ -957,17 +899,6 @@ public partial class MainWindow : Window
                 _lastTypingActivityUtc = DateTime.UtcNow;
                 _typingFallbackTimer.Stop();
                 _pendingTypingFallback = null;
-                if (_settings.InputTranslateEnabled)
-                {
-                    if (_roundAnchorStale && !_roundAnchorReadInFlight)
-                    {
-                        RefreshRoundAnchor();
-                    }
-
-                    _inputTranslateTimer.Stop();
-                    _inputTranslateTimer.Start();
-                }
-
                 if (!_settings.TypingLookupEnabled)
                 {
                     return;
@@ -1411,461 +1342,9 @@ public partial class MainWindow : Window
         }
     }
 
-    // ---- 输入转译：打字 → 预翻译框 → 快捷键把译文写回输入框 ----
-
-    private sealed record TypingRound(
-        string Segment,
-        string RawSegment,
-        bool IsSelection,
-        Rect? AnchorBounds,
-        IntPtr ForegroundWindow,
-        LookupDirection Direction,
-        bool SentenceStart);
-
-    private void SetInputTranslateEnabled(bool enabled, bool announce)
-    {
-        _settings.InputTranslateEnabled = enabled;
-        SetCheckboxWithoutEvent(InputTranslateCheckBox, enabled);
-        if (enabled)
-        {
-            OnInputTranslateBoundary();
-        }
-        else
-        {
-            _inputTranslateTimer.Stop();
-            HideInputTranslatePreview();
-            CancelInputTranslate();
-        }
-
-        UpdateMonitoring();
-        UpdateHomeSummary();
-        var saved = SaveSettingsOrReport();
-        var message = enabled
-            ? $"输入转译：已开启（打字后按 {_settings.InputTranslateHotkey} 把译文写入输入框）。"
-            : "输入转译：已关闭。";
-        SetStatus(message);
-        if (announce)
-        {
-            Announce(saved ? message : "设置保存失败，本次修改仅在当前运行内有效。");
-        }
-    }
-
-    private void InputTranslateCheckBox_OnChanged(object sender, RoutedEventArgs e)
-    {
-        if (!_loadingSettings)
-        {
-            SetInputTranslateEnabled(InputTranslateCheckBox.IsChecked == true, announce: false);
-        }
-    }
-
-    private void ApplyInputTranslateHotkeyButton_OnClick(object sender, RoutedEventArgs e) =>
-        ApplyHotkey(_inputTranslateHotkey, InputTranslateHotkeyTextBox.Text, chord => _settings.InputTranslateHotkey = chord, "输入转译快捷键");
-
-    /// <summary>Round boundary — focus switch, Enter or a click: the text typed from here
-    /// on is a fresh round, so the anchor is refreshed right away.</summary>
-    private void OnInputTranslateBoundary()
-    {
-        if (!_settings.InputTranslateEnabled)
-        {
-            return;
-        }
-
-        HideInputTranslatePreview();
-        RefreshRoundAnchor();
-    }
-
-    /// <summary>Navigation keys (arrows, Tab, Esc, Delete) reset the context: the anchor
-    /// is refreshed lazily on the next keystroke so text already typed in this round is
-    /// kept in the common case.</summary>
-    private void OnInputTranslateContextReset()
-    {
-        if (!_settings.InputTranslateEnabled)
-        {
-            return;
-        }
-
-        HideInputTranslatePreview();
-        _roundAnchorStale = true;
-    }
-
-    private async void RefreshRoundAnchor()
-    {
-        if (!_settings.InputTranslateEnabled || _roundAnchorReadInFlight)
-        {
-            return;
-        }
-
-        var expectedForeground = GetForegroundWindow();
-        _roundAnchorReadInFlight = true;
-        _roundAnchorStale = false;
-        try
-        {
-            var readTask = Task.Run(FocusedTextReader.ReadTypingSegment);
-            if (await Task.WhenAny(readTask, Task.Delay(TypingReadTimeoutMilliseconds)) != readTask)
-            {
-                _ = readTask.ContinueWith(task => _ = task.Exception, TaskScheduler.Default);
-                _roundAnchorLength = -1;
-                _roundAnchorWindow = IntPtr.Zero;
-                return;
-            }
-
-            var read = await readTask;
-            if (read.Ok && !read.IsSelection && read.ForegroundWindow == expectedForeground &&
-                GetForegroundWindow() == expectedForeground)
-            {
-                _roundAnchorLength = read.LengthBeforeCaret;
-                _roundAnchorWindow = expectedForeground;
-            }
-            else
-            {
-                _roundAnchorLength = -1;
-                _roundAnchorWindow = IntPtr.Zero;
-            }
-        }
-        catch (Exception exception)
-        {
-            DiagnosticsLog.Write("XTL", $"anchor read failed: {exception.GetType().Name} {exception.Message}");
-            _roundAnchorLength = -1;
-            _roundAnchorWindow = IntPtr.Zero;
-        }
-        finally
-        {
-            _roundAnchorReadInFlight = false;
-        }
-    }
-
-    private async void InputTranslateTimer_OnTick(object? sender, EventArgs e)
-    {
-        _inputTranslateTimer.Stop();
-        await UpdateInputTranslatePreviewAsync();
-    }
-
-    private async Task UpdateInputTranslatePreviewAsync()
-    {
-        if (!_settings.InputTranslateEnabled || _inputTranslateBusy)
-        {
-            return;
-        }
-
-        var round = await ReadTypingRoundAsync();
-        if (round is null)
-        {
-            if (_roundAnchorStale)
-            {
-                // The anchor refresh was still in flight; retry once it lands.
-                _inputTranslateTimer.Start();
-                return;
-            }
-
-            HideInputTranslatePreview();
-            return;
-        }
-
-        if (!AiConfigured)
-        {
-            HideInputTranslatePreview();
-            if (!_inputTranslateHinted)
-            {
-                _inputTranslateHinted = true;
-                SetStatus("输入转译需要 AI：请到设置 → AI 翻译 填写服务商与 API Key。");
-            }
-
-            return;
-        }
-
-        if (string.Equals(round.Segment, _previewSegment, StringComparison.Ordinal) && _previewTranslation is not null)
-        {
-            ShowPreviewWindow(round, translating: false);
-            return;
-        }
-
-        _previewSegment = round.Segment;
-        _previewTranslation = null;
-        ShowPreviewWindow(round, translating: true);
-        CancelInputTranslate();
-        _inputTranslateCancellation = new CancellationTokenSource();
-        var token = _inputTranslateCancellation.Token;
-        try
-        {
-            var translation = await TranslateSegmentAsync(round.Segment, round.Direction, token);
-            if (token.IsCancellationRequested ||
-                !string.Equals(round.Segment, _previewSegment, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            _previewTranslation = FormatFinalTranslation(round, translation);
-            _translatePreview?.UpdateTranslation(_previewTranslation);
-            _translatePreviewHideTimer.Stop();
-            _translatePreviewHideTimer.Start();
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception exception) when (exception is HttpRequestException or IOException or System.Text.Json.JsonException or InvalidOperationException)
-        {
-            DiagnosticsLog.Write("XTL", $"preview failed: {exception.GetType().Name} {exception.Message}");
-            _previewSegment = null;
-            HideInputTranslatePreview();
-        }
-    }
-
-    private async Task<TypingRound?> ReadTypingRoundAsync()
-    {
-        var readTask = Task.Run(FocusedTextReader.ReadTypingSegment);
-        if (await Task.WhenAny(readTask, Task.Delay(TypingReadTimeoutMilliseconds)) != readTask)
-        {
-            _ = readTask.ContinueWith(task => _ = task.Exception, TaskScheduler.Default);
-            return null;
-        }
-
-        return BuildTypingRound(await readTask);
-    }
-
-    private TypingRound? BuildTypingRound(TypingSegmentReadResult read)
-    {
-        if (!read.Ok || read.PasswordBlocked)
-        {
-            return null;
-        }
-
-        string raw;
-        string segment;
-        char? preceding;
-        if (read.IsSelection)
-        {
-            raw = read.SelectedText ?? string.Empty;
-            segment = raw.Trim();
-            preceding = read.PrecedingChar;
-        }
-        else
-        {
-            if (_roundAnchorStale || _roundAnchorReadInFlight)
-            {
-                // Never measure against a stale anchor: the refresh will land shortly
-                // and the next pause (or hotkey press) sees a clean round.
-                if (_roundAnchorStale)
-                {
-                    RefreshRoundAnchor();
-                }
-
-                return null;
-            }
-
-            raw = SegmentTranscription.ComputeRoundSegment(read.Tail, read.LengthBeforeCaret, read.LengthCapped, _roundAnchorLength)
-                  ?? SegmentTranscription.SentenceSegment(read.Tail);
-            segment = raw.Trim();
-            if (segment.Length < 2)
-            {
-                return null;
-            }
-
-            var startIndex = read.Tail.Length - raw.Length;
-            preceding = startIndex > 0 ? read.Tail[startIndex - 1] : null;
-        }
-
-        if (segment.Length == 0)
-        {
-            return null;
-        }
-
-        var direction = SegmentTranscription.DetectDirection(segment);
-        var sentenceStart = preceding is { } character ? SegmentTranscription.IsSentenceBoundary(character) : true;
-        return new TypingRound(segment, raw, read.IsSelection, read.InputBounds, read.ForegroundWindow, direction, sentenceStart);
-    }
-
-    private static string FormatFinalTranslation(TypingRound round, string translation)
-    {
-        var text = translation.Trim();
-        return round.Direction == LookupDirection.ChineseToEnglish
-            ? SegmentTranscription.ApplySentenceStartCapitalization(text, round.SentenceStart)
-            : text;
-    }
-
-    private async Task<string> TranslateSegmentAsync(string segment, LookupDirection direction, CancellationToken cancellationToken)
-    {
-        if (_translationCache.TryGet(segment, direction, out var cached) && !string.IsNullOrWhiteSpace(cached))
-        {
-            return cached;
-        }
-
-        var options = new AiTranslatorOptions(_settings.AiBaseUrl, _settings.AiApiKey, _settings.AiModel);
-        var builder = new System.Text.StringBuilder();
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(20));
-        await foreach (var chunk in _aiTranslator.StreamAsync(options, segment, direction, timeout.Token))
-        {
-            builder.Append(chunk);
-            if (builder.Length > 4000)
-            {
-                break;
-            }
-        }
-
-        var text = builder.ToString().Trim();
-        if (text.Length == 0)
-        {
-            throw new InvalidOperationException("AI 未返回内容。");
-        }
-
-        _translationCache.Set(segment, direction, text);
-        DiagnosticsLog.Write("XTL", $"translated {segment.Length}->{text.Length} chars in {watch.ElapsedMilliseconds} ms");
-        return text;
-    }
-
-    private async Task PerformInputTranslateAsync()
-    {
-        if (!_settings.InputTranslateEnabled)
-        {
-            SetStatus("输入转译已关闭：可在设置中开启。");
-            return;
-        }
-
-        if (_inputTranslateBusy || Environment.TickCount64 - _lastInputTranslateInjectTicks < 900)
-        {
-            return;
-        }
-
-        if (!AiConfigured)
-        {
-            SetStatus("输入转译需要 AI：请到设置 → AI 翻译 填写服务商与模型，并勾选启用。");
-            return;
-        }
-
-        var round = await ReadTypingRoundAsync();
-        if (round is null)
-        {
-            DiagnosticsLog.Write("XTL", $"no round: anchor={_roundAnchorLength} stale={_roundAnchorStale}");
-            SetStatus("未检测到本轮输入的文字：直接打字后按快捷键，或改用划词翻译。");
-            return;
-        }
-
-        _inputTranslateBusy = true;
-        try
-        {
-            string finalText;
-            if (string.Equals(round.Segment, _previewSegment, StringComparison.Ordinal) && _previewTranslation is not null)
-            {
-                finalText = _previewTranslation;
-            }
-            else
-            {
-                ShowPreviewWindow(round, translating: true);
-                CancelInputTranslate();
-                _inputTranslateCancellation = new CancellationTokenSource();
-                try
-                {
-                    var translation = await TranslateSegmentAsync(round.Segment, round.Direction, _inputTranslateCancellation.Token);
-                    finalText = FormatFinalTranslation(round, translation);
-                    _previewSegment = round.Segment;
-                    _previewTranslation = finalText;
-                    _translatePreview?.UpdateTranslation(finalText);
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
-                catch (Exception exception) when (exception is HttpRequestException or IOException or System.Text.Json.JsonException or InvalidOperationException)
-                {
-                    HideInputTranslatePreview();
-                    DiagnosticsLog.Write("XTL", $"translate failed: {exception.GetType().Name} {exception.Message}");
-                    SetStatus($"翻译失败：{exception.Message}");
-                    return;
-                }
-            }
-
-            if (finalText.Length == 0)
-            {
-                HideInputTranslatePreview();
-                SetStatus("翻译结果为空，未写入。");
-                return;
-            }
-
-            // Let the trigger chord settle and re-check the foreground: the user may have
-            // switched apps while the translation was streaming.
-            await Task.Delay(60);
-            if (GetForegroundWindow() != round.ForegroundWindow)
-            {
-                HideInputTranslatePreview();
-                DiagnosticsLog.Write("XTL", "inject aborted: foreground changed");
-                SetStatus("焦点已切换，已取消写入。");
-                return;
-            }
-
-            HideInputTranslatePreview();
-            var typed = finalText.Length > 1000 ? finalText[..1000] : finalText;
-            var deleteCount = round.IsSelection ? 0 : round.RawSegment.Length;
-            var sent = false;
-            await Task.Run(() =>
-            {
-                var held = TextInjector.ReleaseHeldModifiers();
-                try
-                {
-                    var deleted = TextInjector.SendBackspaces(deleteCount);
-                    sent = deleted && TextInjector.SendUnicodeText(typed);
-                }
-                finally
-                {
-                    TextInjector.RestoreModifiers(held);
-                }
-            });
-
-            if (!sent)
-            {
-                DiagnosticsLog.Write("XTL", $"inject failed delete={deleteCount} chars={typed.Length}");
-                SetStatus("写入失败：目标窗口可能以管理员权限运行（Windows 限制）。");
-                return;
-            }
-
-            _lastInputTranslateInjectTicks = Environment.TickCount64;
-            _previewSegment = null;
-            _previewTranslation = null;
-            _roundAnchorLength = -1;
-            RefreshRoundAnchor();
-            DiagnosticsLog.Write("XTL", $"injected delete={deleteCount} chars={typed.Length}");
-            SetStatus("译文已写入输入框（如需撤销请按 Ctrl+Z）。");
-        }
-        finally
-        {
-            _inputTranslateBusy = false;
-        }
-    }
-
-    private void ShowPreviewWindow(TypingRound round, bool translating)
-    {
-        if (_translatePreview is null)
-        {
-            return;
-        }
-
-        _translatePreview.ShowPreview(round.Segment, _previewTranslation, translating, _settings.InputTranslateHotkey);
-        if (round.AnchorBounds is { IsEmpty: false } bounds)
-        {
-            _translatePreview.PositionNear(bounds);
-        }
-
-        _translatePreviewHideTimer.Stop();
-        _translatePreviewHideTimer.Start();
-    }
-
-    private void HideInputTranslatePreview()
-    {
-        _translatePreviewHideTimer.Stop();
-        _translatePreview?.HidePreview();
-    }
-
-    private void CancelInputTranslate()
-    {
-        _inputTranslateCancellation?.Cancel();
-        _inputTranslateCancellation?.Dispose();
-        _inputTranslateCancellation = null;
-    }
-
     private void OnMousePointerPressed()
     {
         _typingBuffer.Clear();
-        OnInputTranslateBoundary();
 
         if (_screenshotOverlay is not null || Environment.TickCount64 < _screenshotSuppressGesturesUntilTicks)
         {
@@ -3100,11 +2579,6 @@ public partial class MainWindow : Window
                 StartScreenshotCapture();
                 handled = true;
             }
-            else if (hotkeyId == InputTranslateHotkeyId)
-            {
-                _ = PerformInputTranslateAsync();
-                handled = true;
-            }
         }
 
         return IntPtr.Zero;
@@ -3192,10 +2666,6 @@ public partial class MainWindow : Window
         _typingFallbackTimer.Stop();
         _popupAutoCloseTimer.Stop();
         _hookWatchdogTimer.Stop();
-        _inputTranslateTimer.Stop();
-        _translatePreviewHideTimer.Stop();
-        CancelInputTranslate();
-        _translatePreview?.HidePreview();
         var appearanceSavePending = _appearanceSaveTimer.IsEnabled;
         _appearanceSaveTimer.Stop();
         if (appearanceSavePending)
