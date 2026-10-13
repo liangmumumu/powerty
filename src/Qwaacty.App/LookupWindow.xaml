@@ -51,7 +51,7 @@
                         <StackPanel x:Name="ProfessionalPanel" Visibility="Collapsed" Margin="0,0,0,2">
                             <Button x:Name="AiEnhanceButton" HorizontalAlignment="Left" Height="28" Padding="12,0"
                                     Style="{StaticResource VsButton}" FontSize="12.5"
-                                    Content="✦ AI 增强翻译（点击生成）" Click="AiEnhanceButton_OnClick" />
+                                    Content="✦ AI 增强（翻译 + 解释）" Click="AiEnhanceButton_OnClick" />
                             <TextBlock x:Name="ProfessionalAiText" Margin="0,8,0,0" FontSize="13" Foreground="#D4D4D4"
                                        TextWrapping="Wrap" Visibility="Collapsed" />
                             <TextBlock x:Name="ProfessionalEnText" Margin="0,6,0,0" FontSize="17" FontWeight="SemiBold"

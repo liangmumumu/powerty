@@ -333,7 +333,7 @@ public partial class LookupWindow : Window
 
     // ---- 专业词库（电子信息）面板 ----
 
-    /// <summary>Raised when the user clicks the "AI 增强翻译" button on a professional entry.</summary>
+    /// <summary>Raised when the user clicks the "AI 增强（翻译 + 解释）" button on a professional entry.</summary>
     public event Action? AiEnhanceRequested;
 
     /// <summary>True while a professional glossary entry is displayed.</summary>
@@ -412,13 +412,13 @@ public partial class LookupWindow : Window
     public void CompleteAiEnhance()
     {
         AiEnhanceButton.IsEnabled = true;
-        AiEnhanceButton.Content = "✦ 重新生成 AI 翻译";
+        AiEnhanceButton.Content = "✦ 重新生成 AI 增强（翻译 + 解释）";
     }
 
     private void ResetAiEnhanceButton()
     {
         AiEnhanceButton.IsEnabled = true;
-        AiEnhanceButton.Content = "✦ AI 增强翻译（点击生成）";
+        AiEnhanceButton.Content = "✦ AI 增强（翻译 + 解释）";
     }
 
     private void SetProfessionalMode(bool on)

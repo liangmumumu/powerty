@@ -1458,10 +1458,18 @@ public partial class MainWindow : Window
             var options = new AiTranslatorOptions(_settings.AiBaseUrl, _settings.AiApiKey, _settings.AiModel);
             var builder = new System.Text.StringBuilder();
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(20));
+            timeout.CancelAfter(TimeSpan.FromSeconds(30));
             var watch = System.Diagnostics.Stopwatch.StartNew();
             var lastUiUpdateTicks = 0L;
-            await foreach (var chunk in _aiTranslator.StreamAsync(options, entry.Term, LookupDirection.EnglishToChinese, timeout.Token))
+            // The professional enhancement produces both a translation and an
+            // explanation of the term (not just a word-level translation).
+            await foreach (var chunk in _aiTranslator.StreamWithPromptAsync(
+                               options,
+                               ProfessionalEnhancePrompt.BuildSystem(),
+                               ProfessionalEnhancePrompt.BuildUser(entry),
+                               maxTokens: 520,
+                               temperature: 0.3,
+                               timeout.Token))
             {
                 builder.Append(chunk);
                 if (Environment.TickCount64 - lastUiUpdateTicks >= 100)

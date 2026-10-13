@@ -501,6 +501,18 @@ RunSync("Professional dictionary parses and answers both directions", () =>
     Assert(!dictionary.TryFind("not-a-term", out _), "Unknown terms must miss.");
 });
 
+RunSync("Professional enhance prompt asks for translation and explanation", () =>
+{
+    var entry = new ProfessionalEntry("D Flip-Flop", "D触发器", false, "边沿触发的存储元件。", "https://baike.baidu.com/item/D%20Flip-Flop");
+    var user = ProfessionalEnhancePrompt.BuildUser(entry);
+    Assert(user.Contains("D Flip-Flop"), "Prompt must embed the English term.");
+    Assert(user.Contains("D触发器"), "Prompt must embed the Chinese name.");
+    Assert(user.Contains("【翻译】") && user.Contains("【解释】"), "Prompt must request both sections.");
+    var abbreviation = ProfessionalEnhancePrompt.BuildUser(new ProfessionalEntry("ADC", "模数转换器", true, null, string.Empty));
+    Assert(abbreviation.Contains("（缩略语）"), "Abbreviation entries should be flagged in the prompt.");
+    Assert(ProfessionalEnhancePrompt.BuildSystem().Contains("电子"), "System prompt must set the EE domain.");
+});
+
 RunSync("Chinese suffix ladder derives shorter queries", () =>
 {
     var suffixes = ChineseQueryLadder.Suffixes("上午开会");
